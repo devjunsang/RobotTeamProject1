@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>e0509_manual</name>
+  <version>0.1.0</version>
+  <description>Step-by-step manual controller (PyQt5 GUI) for the Doosan E0509 via dsr_bringup2</description>
+  <maintainer email="demyank88@gmail.com">fc</maintainer>
+  <license>Apache-2.0</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>dsr_msgs2</exec_depend>
+  <exec_depend>dsr_bringup2</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>
