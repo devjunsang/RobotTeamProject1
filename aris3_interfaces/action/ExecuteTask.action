@@ -1,0 +1,41 @@
+# 작업 하나 실행 (액션: /aris3/execute_task, CLI·GUI·음성 -> Task Manager)
+# 액션 = 오래 걸리는 요청 + 진행 상황(feedback) + 결과(result) + 취소(cancel)
+
+# ---------------- Goal (요청)
+string task_type                  # "pick_place" (현재 구현된 유일한 작업)
+string target_color               # "red" | "green" | "blue"
+string target_shape               # "" = 모양 상관없음
+string destination                # 목표 구역 이름: "A" | "B" | "C"
+bool dry_run                      # true: 검증·인식·계획까지만 하고 로봇은 움직이지 않음
+---
+# ---------------- Result (결과)
+uint8 ERROR_NONE=0
+uint8 ERROR_INVALID_GOAL=1        # 요청 내용이 잘못됨 (모르는 색·구역 등)
+uint8 ERROR_NOT_READY=2           # 로봇·그리퍼·비전이 준비되지 않음
+uint8 ERROR_TARGET_NOT_FOUND=3    # 카메라에서 목표 물체를 못 찾음
+uint8 ERROR_TARGET_UNSTABLE=4     # 목표 위치 값이 흔들림
+uint8 ERROR_TARGET_AMBIGUOUS=5    # 조건에 맞는 물체가 여러 개
+uint8 ERROR_UNREACHABLE=6         # 계획한 위치에 로봇이 닿지 못함 (움직이기 전에 거부)
+uint8 ERROR_MOTION_FAILED=7       # 이동 명령 실패 또는 목표 위치에 도착하지 못함
+uint8 ERROR_GRASP_FAILED=8        # 집기 실패 (재시도 후에도)
+uint8 ERROR_PLACE_VERIFY_FAILED=9 # 놓은 뒤 카메라로 확인한 위치가 구역 밖
+uint8 ERROR_TIMEOUT=10            # 단계 시간 초과
+uint8 ERROR_CANCELED=11           # 사용자가 취소함
+uint8 ERROR_INTERNAL=12           # 예상하지 못한 오류
+uint8 ERROR_DESTINATION_OCCUPIED=13  # 놓을 구역에 이미 다른 물체가 있음 (쌓이거나 부딪힘)
+
+bool success
+uint8 error_code
+string message
+string failed_stage               # 실패한 단계 이름 (성공이면 "")
+geometry_msgs/Point picked_from   # 집기 전 카메라로 본 물체 위치 (world, m)
+geometry_msgs/Point placed_at     # 놓은 뒤 카메라로 본 물체 위치 (world, m)
+float32 place_error_mm            # 구역 중심과의 수평 거리 [mm]
+float32 duration_s
+---
+# ---------------- Feedback (진행 상황)
+string stage                      # VALIDATE | OBSERVE | PERCEIVE | PLAN | PICK | PLACE | VERIFY | RECOVER
+uint8 stage_index                 # 0부터
+uint8 stage_count
+string detail                     # 지금 하는 일 (사람이 읽는 설명)
+float32 progress                  # 0.0 ~ 1.0

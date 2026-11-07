@@ -1,0 +1,20 @@
+ARIS3 / aris3_sim_bridge
+========================
+
+[폴더 역할]
+기존 Gazebo 작업 셀(e0509_sim)을 ARIS3 인터페이스 계약에 맞춰 주는 임시 어댑터
+
+[개발 기술]
+Python / rclpy
+
+[구현할 내용]
+e0509_sim 카메라 인식(JSON) → /aris3/detected_objects, /aris3/gripper/command → e0509_sim 그리퍼 서비스
+
+[완료 기준]
+Task Manager 가 시뮬레이션 전용 이름을 몰라도 Pick & Place 를 수행할 수 있다.
+
+[개발 단계]
+PHASE 4 ~ 5 (aris3_vision / aris3_control 이 같은 계약을 제공하면 사용하지 않음)
+
+[현재 상태]
+구현 완료 (2026-11-07) - README.md 참고

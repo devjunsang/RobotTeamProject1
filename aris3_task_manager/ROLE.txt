@@ -17,7 +17,10 @@ C++17 / rclcpp / ROS 2 Action
 PHASE 4 ~ 5
 
 [현재 상태]
-설계 단계 / 구현 및 검증 전
+1차 구현 완료 (2026-11-07, Gazebo 작업 셀 e0509_sim 위에서 검증)
+- ExecuteTask 액션 서버 + 상태 머신: VALIDATE → OBSERVE → PERCEIVE → PLAN → PICK → PLACE → VERIFY, 실패 시 RECOVER
+- 경로 계획은 두산 서비스(move_line, ikin/fkin) 사용. MoveIt 연결은 RobotClient 교체로 확장 예정
+- 사용법·구조: README.md / 원리와 공부할 것: docs/ARIS3_TaskManager_학습가이드.md
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
