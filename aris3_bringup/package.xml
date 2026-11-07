@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aris3_bringup</name>
+  <version>0.0.1</version>
+  <description>ARIS3 simulation and system bringup</description>
+  <maintainer email="devjunsang@gmail.com">ARIS3 Developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>dsr_description2</exec_depend>
+  <exec_depend>e0509_gripper_description</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

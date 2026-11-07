@@ -1,0 +1,24 @@
+ARIS3 / aris3_bringup
+=====================
+
+[폴더 역할]
+ROS 2 및 Gazebo 통합 실행
+
+[개발 기술]
+Python launch / ROS 2 Jazzy / Gazebo Harmonic
+
+[구현할 내용]
+robot_state_publisher, Gazebo, ros_gz_bridge, 제어기 및 ARIS3 노드의 실행 순서와 설정 연결; 실행 중 토픽·서비스·액션 연결 상태 확인
+
+[완료 기준]
+필수 노드가 일관된 launch 절차로 시작되며 통합 로봇 시뮬레이션을 재현할 수 있다.
+
+[개발 단계]
+PHASE 1부터 지속
+
+[현재 상태]
+설계 단계 / 구현 및 검증 전
+
+[참고]
+- ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
+- 최상위 README.md는 이후 작성한다.

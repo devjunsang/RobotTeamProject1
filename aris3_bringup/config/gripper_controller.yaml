@@ -1,0 +1,11 @@
+/**/controller_manager:
+  ros__parameters:
+    gripper_position_controller:
+      type: forward_command_controller/ForwardCommandController
+
+/**/gripper_position_controller:
+  ros__parameters:
+    type: forward_command_controller/ForwardCommandController
+    joints:
+      - gripper_rh_r1
+    interface_name: position

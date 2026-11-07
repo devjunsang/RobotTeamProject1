@@ -1,0 +1,61 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: world
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+
+  Displays:
+    # 바닥 격자
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.5
+      Plane Cell Count: 10
+
+    # E0509 로봇 및 RH-P12-RN-A 그리퍼
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /e0509_gripper/robot_description
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1.0
+
+    # 로봇 및 카메라 TF 좌표계
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Axes: true
+      Show Arrows: false
+      Show Names: false
+      Marker Scale: 0.2
+
+    # 빨강·파랑·노랑·초록 정육면체
+    - Class: rviz_default_plugins/MarkerArray
+      Name: ObjectMarkers
+      Enabled: true
+      Marker Topic:
+        Value: /aris3/object_markers
+
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 3.5
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.3
+      Pitch: 0.8
+      Yaw: 0.8

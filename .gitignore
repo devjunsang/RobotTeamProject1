@@ -1,0 +1,17 @@
+# ROS 2 빌드 파일
+build/
+install/
+log/
+
+# Python 캐시 및 가상환경
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 개발 환경
+.vscode/
+
+# 임시 파일
+*.tmp
+*.swp

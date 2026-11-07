@@ -1,0 +1,5 @@
+name,color,shape,x,y,z,width,height,angle_deg
+red_box,red,box,0.0,0.45,0.04,0.08,0.08,90
+blue_box,blue,box,0.45,0.0,0.04,0.08,0.08,0
+yellow_box,yellow,box,0.0,-0.45,0.04,0.08,0.08,270
+green_box,green,box,-0.45,0.0,0.04,0.08,0.08,180

@@ -1,0 +1,24 @@
+ARIS3 / aris3_description
+=========================
+
+[폴더 역할]
+E0509 + RH-P12-RN-A 통합 로봇 모델
+
+[개발 기술]
+URDF / Xacro / Gazebo / ros2_control
+
+[구현할 내용]
+기존 Doosan E0509와 ROBOTIS RH-P12-RN-A 모델을 참조해 통합 Xacro 관리; 관절명·링크명·부착 좌표·충돌 형상 검증; Gazebo ros2_control 플러그인과 설정의 모델 측 연결 관리
+
+[완료 기준]
+통합 모델이 Gazebo에서 올바른 구조로 생성되고 ros2_control 하드웨어 초기화에 필요한 모델 구성이 검증된다.
+
+[개발 단계]
+PHASE 1
+
+[현재 상태]
+설계 단계 / 구현 및 검증 전
+
+[참고]
+- ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
+- 최상위 README.md는 이후 작성한다.

@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <!--
+    ARIS3 PHASE 3 / STEP 03
+
+    목적:
+    로봇 위에 고정형 RGB 카메라를 설치한다.
+
+    실제 월드 좌표는 Launch의 create 노드에서 지정한다.
+    카메라 광축은 Gazebo의 -Z 방향(아래)을 바라본다.
+  -->
+  <model name="aris3_overhead_camera">
+
+    <!-- 물리적으로 움직이지 않는 고정 모델 -->
+    <static>true</static>
+
+    <link name="camera_link">
+
+      <!-- 카메라 센서 -->
+      <sensor name="rgb_camera" type="camera">
+
+        <!-- 카메라의 로컬 +X 광축을 월드 -Z 방향으로 회전 -->
+        <pose>0 0 0 0 1.57079632679 0</pose>
+
+        <!-- 센서 항상 활성화 -->
+        <always_on>true</always_on>
+
+        <!-- 초당 15프레임 -->
+        <update_rate>15</update_rate>
+
+        <!-- Gazebo 영상 토픽 -->
+        <topic>/aris3/overhead_camera/image</topic>
+
+        <camera>
+          <!-- 수평 시야각: 약 80도 -->
+          <horizontal_fov>1.4</horizontal_fov>
+
+          <!-- 이미지 해상도 -->
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+
+          <!-- 렌더링 거리 -->
+          <clip>
+            <near>0.05</near>
+            <far>10.0</far>
+          </clip>
+        </camera>
+      </sensor>
+    </link>
+  </model>
+</sdf>
