@@ -47,7 +47,7 @@ STATE_KO = {
     'STANDBY': '대기', 'MOVING': '이동 중', 'SAFE_OFF': '서보 꺼짐', 'SAFE_STOP': '안전 정지',
     'EMERGENCY_STOP': '비상 정지', 'TEACHING': '직접 교시', 'INITIALIZING': '초기화 중',
     'HOMMING': '원점 복귀 중', 'RECOVERY': '복구 모드', 'SAFE_STOP2': '안전 정지 2',
-    'SAFE_OFF2': '서보 꺼짐 2', 'NOT_READY': '준비 안 됨',
+    'SAFE_OFF2': '서보 꺼짐 2', 'NOT_READY': '준비 안 됨', 'UNKNOWN': '알 수 없음 (접속 안 됨)',
 }
 STANDBY, MOVING = 1, 2
 STOP_TYPE_QUICK = 1       # 0 would also cut servo power (STO); 1 = quick stop, servo stays on
@@ -91,9 +91,10 @@ class RobotLink(Node):
         self.gripper_ok = None          # None unknown, True last command answered, False failed
         self.gripper_running = False    # a gripper DRL program is running right now
         self._grip_token = 0
+        self.connect_seq = 0            # bumps on every successful connect from the GUI
 
-        self._state_pending = False
-        self._posx_pending = False
+        self._state_pending = 0.0      # wall time of the outstanding request, 0 = none
+        self._posx_pending = 0.0
         self.create_timer(0.2, self._poll_state)
         self.create_timer(0.5, self._poll_posx)
 
@@ -122,28 +123,34 @@ class RobotLink(Node):
         self.log(f'로봇 {"경고" if m.level == 2 else "에러"}: {txt}')
 
     def _poll_state(self):
-        if self._state_pending or not self.cli_state.service_is_ready():
+        if not self.cli_state.service_is_ready():
+            self.robot_state = None             # never show a stale state after a disconnect
             return
-        self._state_pending = True
+        # a request sent just before a disconnect never completes: give up on it after 2 s
+        if self._state_pending and time.time() - self._state_pending < 2.0:
+            return
+        self._state_pending = time.time()
         fut = self.cli_state.call_async(GetRobotState.Request())
 
         def done(f):
-            self._state_pending = False
+            self._state_pending = 0.0
             r = f.result()
             if r is not None and r.success:
                 self.robot_state = int(r.robot_state)
         fut.add_done_callback(done)
 
     def _poll_posx(self):
-        if self._posx_pending or not self.cli_posx.service_is_ready():
+        if not self.cli_posx.service_is_ready():
             return
-        self._posx_pending = True
+        if self._posx_pending and time.time() - self._posx_pending < 2.0:
+            return
+        self._posx_pending = time.time()
         req = GetCurrentPosx.Request()
         req.ref = 0  # base
         fut = self.cli_posx.call_async(req)
 
         def done(f):
-            self._posx_pending = False
+            self._posx_pending = 0.0
             r = f.result()
             if r is not None and r.success and r.task_pos_info:
                 self.posx = list(r.task_pos_info[0].data[:6])
@@ -157,6 +164,19 @@ class RobotLink(Node):
             del self.log_lines[:-200]
             self.log_seq += 1
         self.get_logger().info(msg)
+
+    def on_connected(self):
+        with self._lock:
+            self.last_error = ''
+            self.connect_seq += 1
+        self.gripper_ok = None
+
+    def on_disconnected(self):
+        with self._lock:
+            self.robot_state = None
+            self.posx = None
+            self.last_error = ''
+        self.gripper_ok = None
 
     def state_name(self):
         if self.robot_state is None:
@@ -304,7 +324,7 @@ class RobotLink(Node):
     GRIP_LABELS = {'status': '그리퍼 상태 읽기', 'move': '그리퍼 이동', 'torque_off': '그리퍼 힘 풀기',
                    'prepare': '그리퍼 설정만 쓰기(토크 끈 채)'}
 
-    def gripper_command(self, cmd, pos=0, cur=200, vel=600, label=None):
+    def gripper_command(self, cmd, pos=0, cur=200, vel=600, label=None, retries=None):
         """Run one gripper DRL program in a worker thread. Shares the 'busy' lock with arm motion."""
         label = label or self.GRIP_LABELS.get(cmd, cmd)
         reason = self.why_not_ready()
@@ -317,10 +337,25 @@ class RobotLink(Node):
             if self.busy:
                 return False
             self.busy = True
-        self._grip_token = self._grip_token % 250 + 1
-        args = (label, gripper_drl.build(cmd, self._grip_token, pos=pos, cur=cur, vel=vel), self._grip_token)
-        threading.Thread(target=self._run_gripper, args=args, daemon=True).start()
+        if retries is None:
+            retries = 1 if cmd == 'status' else 0      # only the read-only command is repeated automatically
+        threading.Thread(target=self._run_gripper_retry, args=(label, cmd, pos, cur, vel, retries),
+                         daemon=True).start()
         return True
+
+    def _run_gripper_retry(self, label, cmd, pos, cur, vel, retries):
+        try:
+            for attempt in range(retries + 1):
+                self._grip_token = self._grip_token % 250 + 1
+                code = gripper_drl.build(cmd, self._grip_token, pos=pos, cur=cur, vel=vel)
+                if self._run_gripper(label, code, self._grip_token) or attempt == retries:
+                    return
+                self.log(f'{label}: 2초 뒤 한 번 더 시도')
+                time.sleep(2.0)
+                if self.robot_state != STANDBY:
+                    return
+        finally:
+            self.busy = False
 
     def _greg(self, addr):
         q = GetOutputRegisterInt.Request()
@@ -347,7 +382,7 @@ class RobotLink(Node):
             if r is None or not r.success:
                 self.log(f'{label}: 컨트롤러가 DRL 실행을 거부함 (펜던트에서 다른 프로그램이 돌고 있지 않은지 확인)')
                 self.gripper_ok = False
-                return
+                return False
             self.log(f'{label}: 시작')
             done = False
             while time.time() - t0 < gripper_drl.MOVE_TIMEOUT_S + 12.0:
@@ -364,12 +399,12 @@ class RobotLink(Node):
                     q = DrlStop.Request()
                     q.stop_mode = STOP_TYPE_QUICK
                     self._call(self.cli_drl_stop, q)
-                return
+                return False
             b = [self._greg(a) for a in range(24)]
             if any(v is None for v in b):
                 self.log(f'{label}: 결과 레지스터를 읽지 못함')
                 self.gripper_ok = False
-                return
+                return False
             d = gripper_drl.decode(b)
             if d['status'] == 2:
                 self.gripper, self.gripper_stamp, self.gripper_ok = d, time.time(), True
@@ -377,23 +412,24 @@ class RobotLink(Node):
                 err = f', 하드웨어 에러 {d["hw_error"]}' if d['hw_error'] else ''
                 self.log(f'{label}: 완료 ({time.time() - t0:.1f}s) 위치 {d["position"]}, 전류 {d["current_mA"]} mA, '
                          f'토크 {"켜짐" if d["torque"] else "꺼짐"}{err}{extra}')
+                return True
             elif d['status'] == 4:
                 self.gripper_ok = False
                 if d['stage'] == 8:
                     self.log(f'{label}: 거부 — 그리퍼 토크가 켜져 있음')
                 else:
                     self.log(f'{label}: 그리퍼가 응답하지 않음 (단계: {d["stage_name"]}). '
-                             '계속되면 로봇 접속(bringup)을 다시 시작하세요')
+                             '계속되면 「재접속」 버튼을 누르세요')
             else:
                 self.gripper_ok = False
                 self.log(f'{label}: DRL 실행 오류 (단계: {d["stage_name"]}, 상태 {d["status"]})')
+            return False
         finally:
             # let the controller finish the program before anything else is sent
             t1 = time.time()
             while time.time() - t1 < 3.0 and self._drl_state() == 0:
                 time.sleep(0.1)
             self.gripper_running = False
-            self.busy = False
 
 
 def start_link(ns, z_min_mm):
