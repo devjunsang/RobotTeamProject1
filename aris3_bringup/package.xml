@@ -16,6 +16,14 @@
   <exec_depend>xacro</exec_depend>
   <exec_depend>dsr_description2</exec_depend>
   <exec_depend>e0509_gripper_description</exec_depend>
+  <!-- scripts/object_marker_publisher.py -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <!-- launch/aris3_sim_full.launch.py -->
+  <exec_depend>aris3_moveit_config</exec_depend>
+  <exec_depend>aris3_task_manager</exec_depend>
+  <exec_depend>aris3_voice</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

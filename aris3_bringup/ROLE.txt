@@ -17,7 +17,9 @@ robot_state_publisher, Gazebo, ros_gz_bridge, 제어기 및 ARIS3 노드의 실�
 PHASE 1부터 지속
 
 [현재 상태]
-설계 단계 / 구현 및 검증 전
+1차 구현 (2026-11-08): simulation.launch.py - 탁자(0.75 m) 위 로봇, 정육면체 3개(빨강·파랑·노랑),
+Top View 카메라, 팔 궤적 컨트롤러(arm_controller, MoveIt 용) + 그리퍼 컨트롤러 활성화 검증.
+관절 직접 시험용 dsr_position_controller 는 inactive 로 올라감 (config/gz_controllers.yaml 참고)
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
