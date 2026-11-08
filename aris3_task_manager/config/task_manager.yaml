@@ -1,0 +1,63 @@
+# ARIS3 Task Manager 설정 (Gazebo 작업 셀 e0509_sim 기준)
+# 값을 바꾼 뒤에는 colcon build 로 install 폴더에 다시 복사하고 launch 를 다시 한다.
+#
+# 맨 위 키 "/**" = 노드 이름과 상관없이 이 파일을 읽는 모든 노드에 적용.
+# 노드 이름(aris3_task_manager:)을 키로 쓰면, -r __node:=다른이름 으로 띄운 노드에는 아무 값도 적용되지 않고
+# 코드의 기본값이 조용히 쓰인다 (시험용 서버에서 실제로 겪음: 좌표계가 달라져 경로가 틀어짐).
+/**:
+  ros__parameters:
+    # ---- 연결 (ARIS3 계약 이름)
+    action_name: /aris3/execute_task
+    detections_topic: /aris3/detected_objects
+    gripper_service: /aris3/gripper/command
+    gripper_timeout_s: 10.0
+    robot_ns: /dsr01                       # 두산 서비스 네임스페이스 (실제 로봇이면 /e0509_real)
+
+    # ---- 좌표계 (TF 이름)
+    world_frame: workcell                  # 카메라·구역 좌표의 기준 (Gazebo 바닥 기준 작업 셀)
+    robot_base_frame: base_link            # 로봇 이동 명령의 기준
+
+    # ---- 로봇 자세
+    home_joints_deg: [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]   # 관찰 자세: 카메라 시야를 가리지 않음
+    tool_orientation_zyz_deg: [0.0, 180.0, 0.0]          # 그리퍼가 테이블을 수직으로 내려다봄
+
+    # ---- 그리퍼·물체 치수 [m]
+    tcp_offset_m: 0.08                     # 플랜지 -> 집는 점
+    grasp_offset_m: 0.005                  # 물체 중심보다 5 mm 위를 집는다
+    approach_height_m: 0.10                # 접근/후퇴 높이
+    object_height_m: 0.04                  # 4 cm 정육면체
+    place_clearance_m: 0.002
+
+    # ---- 작업 공간 (base_link 기준, TCP) — 이 밖의 경로점은 움직이기 전에 거부
+    workspace_r_min_m: 0.20
+    workspace_r_max_m: 0.75
+    workspace_z_min_m: 0.005
+    workspace_z_max_m: 0.60
+
+    # ---- 목표 구역 (world_frame=workcell 기준, 테이블 표면)
+    zone_names: [A, B, C]
+    zone_xy_world: [0.30, 0.35, 0.45, 0.35, 0.60, 0.35]   # A(x,y), B(x,y), C(x,y)
+    table_z_world: 0.75
+    zone_tolerance_m: 0.03                 # 놓은 뒤 구역 중심에서 이 거리 안이면 성공
+    zone_clear_radius_m: 0.06              # 구역 중심 이 반경 안에 다른 물체가 있으면 거부 (12 cm 판의 절반)
+
+    # ---- 인식
+    known_colors: [red, green, blue]
+    perception_frames: 5                   # 이만큼 모아 평균
+    perception_timeout_s: 5.0
+    max_spread_m: 0.005                    # 5 mm 이상 흔들리면 믿지 않음
+    min_confidence: 0.5
+    settle_time_s: 0.5                     # 관찰 자세 도착 후 기다리는 시간
+
+    # ---- 이동
+    linear_vel_mm_s: 100.0
+    joint_vel_deg_s: 40.0
+    motion_timeout_s: 30.0                 # 이동 하나의 최대 시간
+    arrival_tolerance_mm: 3.0              # 도착 판정 허용 오차
+    reach_tolerance_mm: 1.0                # IK->FK 왕복 허용 오차 (도달 가능성)
+    task_timeout_s: 180.0                  # 작업 전체 최대 시간
+
+    # ---- 실패 처리
+    grip_force: 0.5
+    max_grasp_attempts: 2                  # 집기 실패 시 다시 보고 한 번 더
+    return_home_on_failure: true           # 집기/놓기 중 실패하면 위로 피한 뒤 홈

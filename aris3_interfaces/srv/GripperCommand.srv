@@ -1,0 +1,14 @@
+# 그리퍼 열기/닫기 (서비스: /aris3/gripper/command, Task Manager -> Control)
+# 시뮬레이션에서는 aris3_sim_bridge 가, 실제 장비에서는 실제 그리퍼 어댑터가 이 서비스를 제공한다.
+
+uint8 OPEN=0
+uint8 CLOSE=1
+uint8 STATUS=2                    # 움직이지 않고 상태(잡고 있는지)만 확인
+
+uint8 command
+float32 force                     # 0.0 ~ 1.0, 최대 힘에 대한 비율 (지원하지 않는 어댑터는 무시)
+---
+bool success                      # 명령을 수행했는가
+bool holding                      # 명령 후 물체를 잡고 있는가
+string object_id                  # 잡고 있는 물체 이름 (어댑터가 알 때만)
+string message
