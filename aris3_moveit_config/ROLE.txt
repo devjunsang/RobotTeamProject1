@@ -1,0 +1,26 @@
+ARIS3 / aris3_moveit_config
+===========================
+
+[폴더 역할]
+E0509 + RH-P12-RN-A 통합 모델의 MoveIt 2 설정 (경로 계획·충돌 검사·궤적 실행)
+
+[개발 기술]
+MoveIt 2 (OMPL, Pilz) / SRDF / YAML / Python launch
+
+[구현할 내용]
+arm 플래닝 그룹(base_link~link_6), hand 엔드이펙터, 관절 제한, Gazebo arm_controller 연동,
+작업 탁자 충돌 물체 등록, 연동 시험 스크립트
+
+[완료 기준]
+MoveIt 이 계획한 경로를 Gazebo 팔이 실제로 실행하고 목표 자세에 도착한다. 탁자와 충돌하는 목표는 거부한다.
+
+[개발 단계]
+PHASE 4
+
+[현재 상태]
+1차 구현 (2026-11-08): home -> 파란 큐브 위(link_6) -> home 계획·실행 성공, 도착 오차 1.9 mm,
+탁자 아래 목표는 계획 단계에서 거부됨. Task Manager 연동은 다음 단계.
+
+[참고]
+- 시뮬레이션 전용 (use_sim_time). 실물 로봇용 컨트롤러 연결은 확정되지 않음.
+- docs/ARIS3_개발방향_확정.md
