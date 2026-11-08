@@ -1,4 +1,5 @@
 # 표준 라이브러리: 파일 경로 결합과 Gazebo Launch 파일 경로 작성 등에 사용한다.
+import csv
 import os
 # 외부 프로그램(xacro, check_urdf)을 실행하기 위한 표준 라이브러리다.
 import subprocess
@@ -11,6 +12,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 # Launch에서 사용하는 각종 실행/이벤트/환경 액션을 가져온다.
 from launch.actions import (
+    DeclareLaunchArgument,     # launch 인자 (grasp_assist)
     IncludeLaunchDescription,  # 다른 Launch 파일을 현재 Launch에 포함한다.
     OpaqueFunction,             # 실행 시점에 Python 함수로 액션 목록을 생성한다.
     RegisterEventHandler,      # 프로세스 종료 등의 이벤트를 감시한다.
@@ -23,6 +25,7 @@ from launch.event_handlers import OnProcessExit
 # 다른 Python Launch 파일을 로드하는 소스 객체다.
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 # ROS 2 노드를 Launch 액션으로 실행하기 위한 클래스다.
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -30,6 +33,11 @@ from launch_ros.actions import Node
 NAMESPACE = "e0509_gripper"
 # Gazebo 월드에서 로봇 엔티티에 붙일 이름이다.
 ROBOT_NAME = "e0509_with_gripper"
+# 작업 탁자 윗면 높이 [m]. 로봇 베이스가 이 높이에 놓인다 (e0509_sim 작업 셀과 같은 값).
+# 바꾸면 worlds/aris3_world.sdf 의 탁자와 config/object_layout.csv 의 z 도 같이 바꿀 것.
+TABLE_TOP_Z = 0.75
+# 카메라는 탁자 윗면 위 2.0 m 에 둔다 (탁자 도입 전 바닥 위 2.0 m 와 같은 시야).
+CAMERA_Z = TABLE_TOP_Z + 2.0
 
 
 def setup_simulation(context, *args, **kwargs):
@@ -42,7 +50,8 @@ def setup_simulation(context, *args, **kwargs):
         / "urdf/e0509_with_gripper.urdf.xacro"
     )
     # Doosan의 Gazebo 컨트롤러 설정 경로를 찾는다.
-    # 주의: 이 변수는 이 코드에서 존재 여부만 검사하며 직접 전달하지 않는다.
+    # 이 경로는 아래에서 URDF 안의 문자열을 aris3_bringup/config/gz_controllers.yaml 로
+    # 바꿀 때 찾는 대상으로 쓴다.
     controller_yaml = (
         Path(get_package_share_directory("dsr_controller2"))
         / "config/dsr_controller2_gz.yaml"
@@ -57,7 +66,9 @@ def setup_simulation(context, *args, **kwargs):
 
     # xacro CLI를 호출해 Gazebo용 URDF를 생성한다.
     subprocess.run(
-        ["xacro", str(xacro_file), "use_gazebo:=true", "-o", str(urdf_file)],
+        # base_z: URDF 의 world -> base_link 높이. 로봇을 탁자 위에 올린다.
+        ["xacro", str(xacro_file), "use_gazebo:=true", f"base_z:={TABLE_TOP_Z}",
+         "-o", str(urdf_file)],
         check=True,
     )
 
@@ -70,6 +81,46 @@ def setup_simulation(context, *args, **kwargs):
 
     # robot_state_publisher의 robot_description 파라미터에 넣을 URDF 문자열이다.
     robot_description = urdf_file.read_text()
+
+    # Gazebo ros2_control 설정을 ARIS3 파일로 교체한다 (팔 궤적 컨트롤러 + 100 Hz).
+    # dsr_description2 매크로가 넣는 경로를 문자열로 바꾸므로 외부 패키지는 수정하지 않는다.
+    aris3_controllers = (
+        Path(get_package_share_directory("aris3_bringup"))
+        / "config/gz_controllers.yaml"
+    )
+    if str(controller_yaml) not in robot_description:
+        raise RuntimeError(
+            "[ARIS3] URDF 에서 Gazebo 컨트롤러 설정 경로를 찾지 못함: "
+            f"{controller_yaml} (dsr_description2 버전 확인)"
+        )
+    robot_description = robot_description.replace(
+        str(controller_yaml), str(aris3_controllers)
+    )
+    # [파지 보조 옵션] grasp_assist:=true 이면 물체마다 DetachableJoint 를 로봇에 붙인다.
+    # 그리퍼 어댑터(aris3_sim_bridge gz_gripper_bridge)가 손가락이 물체에 막혔을 때만
+    # /aris3/sim/<물체>/attach 를 보내 손(link_6)에 고정하고, 열 때 detach 한다.
+    # 기본(false)은 순수 마찰 파지. 두 결과는 따로 기록한다 (docs/ARIS3_개발방향_확정.md).
+    grasp_assist = LaunchConfiguration("grasp_assist").perform(context) == "true"
+    object_names = []
+    if grasp_assist:
+        layout = (Path(get_package_share_directory("aris3_bringup"))
+                  / "config/object_layout.csv")
+        with layout.open(encoding="utf-8") as f:
+            object_names = [row["name"] for row in csv.DictReader(f)]
+        plugins = "".join(
+            '<gazebo><plugin filename="gz-sim-detachable-joint-system" '
+            'name="gz::sim::systems::DetachableJoint">'
+            f"<parent_link>link_6</parent_link><child_model>{n}</child_model>"
+            "<child_link>body</child_link>"
+            f"<attach_topic>/aris3/sim/{n}/attach</attach_topic>"
+            f"<detach_topic>/aris3/sim/{n}/detach</detach_topic>"
+            f"<output_topic>/aris3/sim/{n}/state</output_topic>"
+            "</plugin></gazebo>"
+            for n in object_names
+        )
+        robot_description = robot_description.replace("</robot>", plugins + "</robot>")
+
+    urdf_file.write_text(robot_description)   # Gazebo 스폰도 같은 URDF 를 쓴다
 
     # ROS 2 TF 및 robot_description을 제공하는 노드다.
     robot_state_publisher = Node(
@@ -148,7 +199,7 @@ def setup_simulation(context, *args, **kwargs):
         output="screen",
     )
 
-    # PHASE 3 / STEP 03: Gazebo 월드 원점 위 1.3m에 고정 카메라를 설치한다.
+    # PHASE 3 / STEP 03: 로봇 베이스 바로 위(탁자 윗면 위 2.0m)에 고정 카메라를 설치한다.
     spawn_camera = Node(
         package="ros_gz_sim",
         executable="create",
@@ -158,7 +209,7 @@ def setup_simulation(context, *args, **kwargs):
             "-file", str(camera_file),
             "-x", "0",
             "-y", "0",
-            "-z", "2.0",
+            "-z", str(CAMERA_Z),
         ],
         output="screen",
     )
@@ -175,6 +226,22 @@ def setup_simulation(context, *args, **kwargs):
         output="screen",
     )
 
+    # 파지 보조용 attach/detach/state 토픽 브리지 (grasp_assist:=true 일 때만)
+    assist_bridge_args = []
+    for n in object_names:
+        assist_bridge_args += [
+            f"/aris3/sim/{n}/attach@std_msgs/msg/Empty]gz.msgs.Empty",
+            f"/aris3/sim/{n}/detach@std_msgs/msg/Empty]gz.msgs.Empty",
+            f"/aris3/sim/{n}/state@std_msgs/msg/String[gz.msgs.StringMsg",
+        ]
+    assist_bridge = Node(
+        name="aris3_grasp_assist_bridge",
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=assist_bridge_args,
+        output="screen",
+    )
+
     # 로봇 스폰 프로세스 종료 이벤트를 받으면 이후 노드를 실행한다.
 
     # ========================================================
@@ -182,7 +249,7 @@ def setup_simulation(context, *args, **kwargs):
     # ========================================================
 
     # world -> overhead_camera_frame
-    # Gazebo 카메라의 설치 위치 (0, 0, 2.0m)
+    # Gazebo 카메라의 설치 위치 (0, 0, CAMERA_Z). world = Gazebo 바닥 원점
     camera_mount_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -190,7 +257,7 @@ def setup_simulation(context, *args, **kwargs):
         arguments=[
             "--x", "0",
             "--y", "0",
-            "--z", "2.0",
+            "--z", str(CAMERA_Z),
             "--roll", "0",
             "--pitch", "0",
             "--yaw", "0",
@@ -261,7 +328,7 @@ def setup_simulation(context, *args, **kwargs):
             spawn_objects,
             spawn_camera,
             camera_bridge,
-        ]
+        ] + ([assist_bridge] if object_names else [])
 
     # 로봇 스폰 완료 여부를 감시한다.
     controller_start_handler = RegisterEventHandler(
@@ -326,6 +393,9 @@ def setup_simulation(context, *args, **kwargs):
 def generate_launch_description():
     # ros2 launch 진입점.
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "grasp_assist", default_value="false",
+            description="true: 물체 붙이기(DetachableJoint) 파지 보조, false: 순수 마찰 파지"),
         OpaqueFunction(function=setup_simulation),
     ])
 

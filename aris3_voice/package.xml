@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>aris3_voice</name>
+  <version>0.1.0</version>
+  <description>ARIS3 한국어 음성 명령 (마이크 -> Whisper STT -> 명령 해석 -> /aris3/voice_command)</description>
+  <maintainer email="devjunsang@gmail.com">MasterJun</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>aris3_interfaces</exec_depend>
+  <exec_depend>alsa-utils</exec_depend>
+  <!-- faster-whisper 는 rosdep 키가 없어 가상환경에 따로 설치한다 (README 참고) -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

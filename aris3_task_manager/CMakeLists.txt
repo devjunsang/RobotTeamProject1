@@ -18,6 +18,8 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(aris3_interfaces REQUIRED)
 find_package(dsr_msgs2 REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
+find_package(tf2_eigen REQUIRED)
 
 # 1) ROS 에 의존하지 않는 순수 로직 → 단위 시험에서 바로 링크한다.
 add_library(task_logic STATIC src/geometry.cpp src/target_estimator.cpp)
@@ -27,10 +29,12 @@ set_target_properties(task_logic PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # 2) 노드 실행 파일
 add_executable(task_manager
-  src/main.cpp src/task_manager_node.cpp src/robot_client.cpp src/gripper_client.cpp)
+  src/main.cpp src/task_manager_node.cpp src/robot_client.cpp src/gripper_client.cpp
+  src/moveit_robot_client.cpp)
 target_link_libraries(task_manager task_logic)
 ament_target_dependencies(task_manager
-  rclcpp rclcpp_action geometry_msgs tf2 tf2_ros tf2_geometry_msgs aris3_interfaces dsr_msgs2)
+  rclcpp rclcpp_action geometry_msgs tf2 tf2_ros tf2_geometry_msgs aris3_interfaces dsr_msgs2
+  moveit_ros_planning_interface tf2_eigen)
 
 # 3) 명령줄 액션 클라이언트
 add_executable(send_task src/send_task.cpp)

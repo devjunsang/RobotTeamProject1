@@ -11,6 +11,9 @@
   <xacro:arg name="mode"         default="virtual"/>
   <xacro:arg name="model"        default="e0509"/>
   <xacro:arg name="update_rate"  default="100"/>
+  <!-- world 원점에서 로봇 베이스까지의 높이 [m]. 0 = 바닥 (실물·기존 launch 기본값),
+       0.75 = 시뮬레이션 탁자 위 (aris3_bringup/simulation.launch.py 가 전달) -->
+  <xacro:arg name="base_z"       default="0.0"/>
 
   <!-- Local properties -->
   <xacro:property name="gz"          value="$(arg use_gazebo)"/>
@@ -28,7 +31,7 @@
   <!-- World link -->
   <link name="world"/>
   <joint name="world_fixed" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="0 0 $(arg base_z)" rpy="0 0 0"/>
     <parent link="world"/>
     <child link="base_link"/>
   </joint>
@@ -54,6 +57,24 @@
       update_rate="${update_rate}"
     />
     
+    <!-- 그리퍼 손가락 접촉 설정 (Gazebo 마찰 파지용, 2026-11-08 추가)
+         rh_p12_rn_a.xacro 에는 접촉·마찰 설정이 없어 기본 마찰(1.0)로 물체가 미끄러졌다.
+         (dsr 매크로의 e0509_gripperlink* 설정은 팔 링크용이며 이름이 달라 손가락에 적용되지 않음) -->
+    <xacro:macro name="aris3_finger_contact" params="link">
+      <gazebo reference="${link}">
+        <mu1>3.0</mu1>
+        <mu2>3.0</mu2>
+        <kp>1000000.0</kp>
+        <kd>100.0</kd>
+        <minDepth>0.001</minDepth>
+        <maxVel>0.1</maxVel>
+      </gazebo>
+    </xacro:macro>
+    <xacro:aris3_finger_contact link="gripper_rh_p12_rn_r1"/>
+    <xacro:aris3_finger_contact link="gripper_rh_p12_rn_r2"/>
+    <xacro:aris3_finger_contact link="gripper_rh_p12_rn_l1"/>
+    <xacro:aris3_finger_contact link="gripper_rh_p12_rn_l2"/>
+
     <!-- Gripper ros2_control - ALL 4 joints -->
     <ros2_control name="gripper_gz" type="system">
       <hardware>

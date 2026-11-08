@@ -14,5 +14,7 @@ setup(
     entry_points={'console_scripts': [
         'vision_bridge = aris3_sim_bridge.vision_bridge:main',
         'gripper_bridge = aris3_sim_bridge.gripper_bridge:main',
+        'gz_gripper_bridge = aris3_sim_bridge.gz_gripper_bridge:main',
+        'gz_truth_detector = aris3_sim_bridge.gz_truth_detector:main',
     ]},
 )

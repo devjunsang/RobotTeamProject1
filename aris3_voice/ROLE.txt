@@ -5,7 +5,7 @@ ARIS3 / aris3_voice
 음성 명령 인식 및 구조화
 
 [개발 기술]
-Python / STT / rclpy
+Python / faster-whisper (Whisper STT) / rclpy
 
 [구현할 내용]
 마이크 또는 녹음 파일의 한국어 명령 인식; 색상·도형·행동을 공통 작업 명령으로 변환; C++ 작업 관리자에 ROS 2 메시지로 전달
@@ -17,7 +17,10 @@ Python / STT / rclpy
 PHASE 5
 
 [현재 상태]
-설계 단계 / 구현 및 검증 전
+1차 구현 (2026-11-08): voice_node (arecord + faster-whisper base, VAD) -> /aris3/voice_command.
+MARK1 command_parser 를 옮겨 '색 필수·도형 선택'·노랑·큐브 표현 추가 (pytest 12/12).
+Windows MARK1 PC 는 쓰지 않고 GUI 의 '누르고 말하기' 버튼(/aris3/voice/listen)으로 녹음한다.
+faster-whisper 는 가상환경(~/venvs/mark1_voice)에 설치, launch 가 그 Python 으로 실행
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.

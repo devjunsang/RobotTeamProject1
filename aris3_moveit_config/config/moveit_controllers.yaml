@@ -1,0 +1,20 @@
+# MoveIt 이 궤적을 보내는 곳 = Gazebo 의 arm_controller (aris3_bringup/config/gz_controllers.yaml)
+# 실제 액션 이름은 /e0509_gripper/arm_controller/follow_joint_trajectory 이고,
+# launch/move_group.launch.py 의 remapping 으로 연결한다 (파라미터 이름에는 '/' 를 쓸 수 없음).
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.5
+  allowed_goal_duration_margin: 1.0
+  allowed_start_tolerance: 0.02
+  trajectory_duration_monitoring: true
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - arm_controller
+
+  arm_controller:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: true
+    joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6]

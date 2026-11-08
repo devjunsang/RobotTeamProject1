@@ -10,7 +10,7 @@ install(
 
 
 install(
-  PROGRAMS scripts/start_controllers.py
+  PROGRAMS scripts/start_controllers.py scripts/wait_for_action.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

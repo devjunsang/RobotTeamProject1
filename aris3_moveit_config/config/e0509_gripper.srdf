@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<!--
+  ARIS3 E0509 + RH-P12-RN-A 의 MoveIt 의미 정보 (SRDF)
+
+  URDF: e0509_gripper_description/urdf/e0509_with_gripper.urdf.xacro
+        루트 링크가 world 이고 world -> base_link 고정 관절(world_fixed)이 있으므로
+        virtual_joint 는 두지 않는다.
+  팔 충돌 해제 목록은 dsr_moveit_config_e0509/config/dsr.srdf 를 따르고,
+  그리퍼 관련 항목을 덧붙였다.
+-->
+<robot name="e0509_with_gripper">
+
+  <!-- 팔: 경로 계획 대상 (끝 링크 = link_6 플랜지. 집는 점(TCP) 오프셋은 Task Manager 가 더한다) -->
+  <group name="arm">
+    <chain base_link="base_link" tip_link="link_6"/>
+  </group>
+
+  <!-- 그리퍼: MoveIt 이 계획하지 않는다 (개폐는 /aris3/gripper/command 로 따로 한다).
+       충돌 계산과 end effector 정의에만 쓴다. -->
+  <group name="hand">
+    <link name="gripper_rh_p12_rn_base"/>
+    <link name="gripper_rh_p12_rn_r1"/>
+    <link name="gripper_rh_p12_rn_r2"/>
+    <link name="gripper_rh_p12_rn_l1"/>
+    <link name="gripper_rh_p12_rn_l2"/>
+  </group>
+
+  <end_effector name="hand" parent_link="link_6" group="hand" parent_group="arm"/>
+
+  <!-- 이름 붙인 자세 -->
+  <!-- home: Task Manager 의 관찰 자세와 같음 [0, 0, 90, 0, 90, 0] deg -->
+  <group_state name="home" group="arm">
+    <joint name="joint_1" value="0"/>
+    <joint name="joint_2" value="0"/>
+    <joint name="joint_3" value="1.5708"/>
+    <joint name="joint_4" value="0"/>
+    <joint name="joint_5" value="1.5708"/>
+    <joint name="joint_6" value="0"/>
+  </group_state>
+  <group_state name="zero" group="arm">
+    <joint name="joint_1" value="0"/>
+    <joint name="joint_2" value="0"/>
+    <joint name="joint_3" value="0"/>
+    <joint name="joint_4" value="0"/>
+    <joint name="joint_5" value="0"/>
+    <joint name="joint_6" value="0"/>
+  </group_state>
+
+  <!-- 충돌 검사 제외 (Adjacent: 관절로 붙어 있음 / Never: 구조상 닿을 수 없음) -->
+  <disable_collisions link1="base_link" link2="link_1" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="link_2" reason="Never"/>
+  <disable_collisions link1="link_1" link2="link_2" reason="Adjacent"/>
+  <disable_collisions link1="link_1" link2="link_3" reason="Never"/>
+  <disable_collisions link1="link_2" link2="link_3" reason="Adjacent"/>
+  <disable_collisions link1="link_3" link2="link_4" reason="Adjacent"/>
+  <disable_collisions link1="link_3" link2="link_5" reason="Never"/>
+  <disable_collisions link1="link_3" link2="link_6" reason="Never"/>
+  <disable_collisions link1="link_4" link2="link_5" reason="Adjacent"/>
+  <disable_collisions link1="link_5" link2="link_6" reason="Adjacent"/>
+
+  <!-- 그리퍼 -->
+  <disable_collisions link1="link_6" link2="gripper_rh_p12_rn_base" reason="Adjacent"/>
+  <disable_collisions link1="link_5" link2="gripper_rh_p12_rn_base" reason="Never"/>
+  <disable_collisions link1="link_4" link2="gripper_rh_p12_rn_base" reason="Never"/>
+  <disable_collisions link1="link_6" link2="gripper_rh_p12_rn_r1" reason="Never"/>
+  <disable_collisions link1="link_6" link2="gripper_rh_p12_rn_l1" reason="Never"/>
+  <disable_collisions link1="gripper_rh_p12_rn_base" link2="gripper_rh_p12_rn_r1" reason="Adjacent"/>
+  <disable_collisions link1="gripper_rh_p12_rn_base" link2="gripper_rh_p12_rn_l1" reason="Adjacent"/>
+  <disable_collisions link1="gripper_rh_p12_rn_base" link2="gripper_rh_p12_rn_r2" reason="Never"/>
+  <disable_collisions link1="gripper_rh_p12_rn_base" link2="gripper_rh_p12_rn_l2" reason="Never"/>
+  <disable_collisions link1="gripper_rh_p12_rn_r1" link2="gripper_rh_p12_rn_r2" reason="Adjacent"/>
+  <disable_collisions link1="gripper_rh_p12_rn_l1" link2="gripper_rh_p12_rn_l2" reason="Adjacent"/>
+  <!-- 양쪽 손가락은 닫힐 때 서로 닿는 것이 정상 동작이므로 검사하지 않는다 -->
+  <disable_collisions link1="gripper_rh_p12_rn_r1" link2="gripper_rh_p12_rn_l1" reason="Default"/>
+  <disable_collisions link1="gripper_rh_p12_rn_r1" link2="gripper_rh_p12_rn_l2" reason="Default"/>
+  <disable_collisions link1="gripper_rh_p12_rn_r2" link2="gripper_rh_p12_rn_l1" reason="Default"/>
+  <disable_collisions link1="gripper_rh_p12_rn_r2" link2="gripper_rh_p12_rn_l2" reason="Default"/>
+
+</robot>

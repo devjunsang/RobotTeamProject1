@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>aris3_gui</name>
+  <version>0.1.0</version>
+  <description>ARIS3 Control Station - PyQt5 통합 관제 GUI (시뮬레이션·실물, 작업·음성·카메라·수동 조작)</description>
+  <maintainer email="devjunsang@gmail.com">MasterJun</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+  <exec_depend>aris3_interfaces</exec_depend>
+  <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>shape_msgs</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <!-- 시뮬레이션 모드 Connect 가 실행 -->
+  <exec_depend>aris3_bringup</exec_depend>
+  <!-- 실물 모드 (etc/e0509_manual): 접속·안전 검사 재사용. 없으면 실물 모드만 쓸 수 없다 -->
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

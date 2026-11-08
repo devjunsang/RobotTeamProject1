@@ -1,0 +1,53 @@
+# ARIS3 Gazebo ros2_control 설정 (controller_manager: /e0509_gripper/controller_manager)
+#
+# simulation.launch.py 가 xacro 로 만든 URDF 안의 gz_ros2_control <parameters> 경로
+# (dsr_controller2/config/dsr_controller2_gz.yaml, update_rate 10 Hz) 를 이 파일로 바꿔 넣는다.
+# 외부 패키지(doosan-robot2)는 고치지 않는다.
+#
+# 팔 컨트롤러 두 개는 같은 관절(joint_1~6)을 쓰므로 동시에 active 가 될 수 없다.
+#   arm_controller          : JointTrajectoryController - MoveIt 2 실행용 (기본 active)
+#   dsr_position_controller : ForwardCommandController  - 관절 직접 시험용 (기본 inactive)
+# 전환: ros2 control switch_controllers -c /e0509_gripper/controller_manager \
+#         --deactivate arm_controller --activate dsr_position_controller
+/**:
+  controller_manager:
+    ros__parameters:
+      update_rate: 100  # Hz (기존 10 Hz 에서 올림: 궤적을 부드럽게 따라가기 위함)
+
+      joint_state_broadcaster:
+        type: joint_state_broadcaster/JointStateBroadcaster
+
+      arm_controller:
+        type: joint_trajectory_controller/JointTrajectoryController
+
+      dsr_position_controller:
+        type: forward_command_controller/ForwardCommandController
+
+      gripper_position_controller:
+        type: forward_command_controller/ForwardCommandController
+
+  arm_controller:
+    ros__parameters:
+      joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6]
+      command_interfaces: [position]
+      state_interfaces: [position, velocity]
+      allow_partial_joints_goal: false
+      constraints:
+        stopped_velocity_tolerance: 0.05
+        goal_time: 2.0                 # 궤적 끝난 뒤 목표 도달까지 허용 시간 [s]
+        joint_1: {trajectory: 0.2, goal: 0.02}
+        joint_2: {trajectory: 0.2, goal: 0.02}
+        joint_3: {trajectory: 0.2, goal: 0.02}
+        joint_4: {trajectory: 0.2, goal: 0.02}
+        joint_5: {trajectory: 0.2, goal: 0.02}
+        joint_6: {trajectory: 0.2, goal: 0.02}
+
+  dsr_position_controller:
+    ros__parameters:
+      joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6]
+      interface_name: position
+
+  gripper_position_controller:
+    ros__parameters:
+      joints: [gripper_rh_r1]          # 나머지 손가락 3개는 URDF mimic 으로 따라온다
+      interface_name: position
