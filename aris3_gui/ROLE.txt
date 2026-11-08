@@ -2,23 +2,26 @@ ARIS3 / aris3_gui
 =================
 
 [폴더 역할]
-Qt 기반 관제 GUI (도전 목표)
+ARIS3 Control Station - 하나의 Qt 화면에서 시뮬레이션·실물 로봇의 상태 확인, 작업 실행, 음성 명령, 카메라, 수동 조작
 
 [개발 기술]
-C++17 / Qt Widgets / rclcpp / RViz2
+Python / PyQt5 / rclpy  (2026-11-08 결정: 기존 e0509_manual/gui.py(PyQt5)와 안전 코드를 재사용하기 위해 C++ 대신 Python)
 
 [구현할 내용]
-실시간 카메라 Top View, 인식 박스, 로봇·그리퍼 상태, 작업 버튼, 로그 표시; 여유가 되면 RViz2 RenderPanel 내장 및 작업 큐 구현
+마스터플랜 07장 목업 배치: 시스템·로봇·그리퍼 상태, 카메라 Top View + 검출 표시, 작업 큐·단계 진행, 로그,
+음성 명령(누르고 말하기 / 문장 입력, aris3_voice 노드), 수동 조작(TCP·관절), 정지. RViz 3D 내장은 도전 과제
 
 [완료 기준]
-Qt에서 상태·영상·작업 정보를 확인할 수 있고, GUI가 없어도 로봇 핵심 기능은 독립 실행된다.
+GUI 하나로 시뮬레이션을 시작하고 음성 또는 버튼으로 Pick & Place 를 실행·감시할 수 있다.
+GUI 를 꺼도 로봇 핵심 노드(Task Manager, MoveIt, 음성)는 독립적으로 동작한다.
 
 [개발 단계]
-CHALLENGE
+CHALLENGE (Windows MARK1 PC 를 쓰지 않기로 하면서 통합 관제 화면으로 범위 확대)
 
 [현재 상태]
-설계 단계 / 구현 및 검증 전
+1차 구현 (2026-11-08): 시뮬레이션 모드 동작 확인 - Connect 로 Gazebo·MoveIt·Task Manager·음성 순서 실행,
+「노란 큐브 집어줘」 문장 -> 해석 -> 자동 실행 -> 구역 A 0.2 mm 성공. 실물 모드는 e0509_manual 접속·수동 조작만
+(실물 자동 작업은 검증 전이라 막아 둠). 실제 마이크로 말한 인식률은 아직 측정 전.
 
 [참고]
-- ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
-- 최상위 README.md는 이후 작성한다.
+- 실행: ros2 run aris3_gui control_station [--mode real]   README.md 참고
