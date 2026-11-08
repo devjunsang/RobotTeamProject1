@@ -19,6 +19,7 @@ ROS 2 msg / srv / action
 [현재 상태]
 1차 정의 (2026-11-07): msg DetectedObject, DetectedObjectArray, TaskStatus / srv GripperCommand (OPEN, CLOSE, STATUS) / action ExecuteTask
 - 이름·필드는 설계 문서 4장의 후보 계약을 따름. 바꾸면 사용하는 모든 패키지를 다시 빌드할 것
+추가 (2026-11-08): msg VoiceCommand (/aris3/voice_command, aris3_voice -> GUI)
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
