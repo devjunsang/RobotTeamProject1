@@ -1,0 +1,70 @@
+# ARIS3 Task Manager 설정 - aris3_bringup Gazebo + MoveIt 2 (launch/task_manager_aris3_sim.launch.py)
+# e0509_sim(두산 에뮬레이터)용은 config/task_manager.yaml.
+# 맨 위 키 "/**" 를 쓰는 이유는 task_manager.yaml 머리말 참고.
+/**:
+  ros__parameters:
+    # ---- 연결
+    action_name: /aris3/execute_task
+    detections_topic: /aris3/detected_objects
+    gripper_service: /aris3/gripper/command
+    gripper_timeout_s: 10.0
+    robot_backend: moveit                   # MoveIt 2 move_group -> /e0509_gripper/arm_controller
+    moveit_group: arm
+    moveit_tip_link: link_6
+    moveit_joint_states_topic: /e0509_gripper/joint_states
+    moveit_planning_time_s: 5.0
+    moveit_velocity_scaling: 0.3
+    moveit_acceleration_scaling: 0.3
+
+    # ---- 좌표계 (TF 이름). world = Gazebo 바닥 원점, base_link = 탁자 위 로봇 베이스 (z 0.75)
+    world_frame: world
+    robot_base_frame: base_link
+
+    # ---- 로봇 자세
+    home_joints_deg: [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    tool_orientation_zyz_deg: [0.0, 180.0, 0.0]   # 그리퍼가 탁자를 수직으로 내려다봄
+
+    # ---- 그리퍼·물체 치수 [m]
+    tcp_offset_m: 0.105                    # link_6 -> RH-P12-RN-A 손가락 사이 집는 점 (메시 치수로 계산)
+    # 큐브 중심보다 1.7 cm 위를 집는다: RH-P12-RN-A 는 닫히면 손가락 끝이 안쪽·아래로 말려서
+    # 중심 높이로 잡으면 손가락 끝이 탁자에 닿는다 (MoveIt 충돌 검사로 확인한 경계 + 5 mm 여유)
+    grasp_offset_m: 0.017
+    approach_height_m: 0.10
+    object_height_m: 0.05                  # 5 cm 정육면체
+    # 놓을 때 탁자 위 여유. 마찰 파지는 옮기는 동안 물체가 손가락 사이에서 몇 mm 미끄러져 내려와
+    # (2026-11-08 시험: 약 9 mm) 하강 끝에서 물체가 먼저 탁자에 닿으므로 여유를 둔다
+    place_clearance_m: 0.015
+
+    # ---- 작업 공간 (base_link 기준, TCP)
+    workspace_r_min_m: 0.20
+    workspace_r_max_m: 0.75
+    workspace_z_min_m: 0.005
+    workspace_z_max_m: 0.60
+
+    # ---- 목표 구역 (world 기준, 탁자 표면). 큐브가 12시(+y)·3시(+x)·9시(-x) 에 있으므로 6시(-y) 쪽에 둔다
+    zone_names: [A, B, C]
+    zone_xy_world: [0.30, -0.35, 0.00, -0.45, -0.30, -0.35]
+    table_z_world: 0.75
+    zone_tolerance_m: 0.03
+    zone_clear_radius_m: 0.06
+
+    # ---- 인식
+    known_colors: [red, blue, yellow, green]
+    perception_frames: 5
+    perception_timeout_s: 5.0
+    max_spread_m: 0.005
+    min_confidence: 0.5
+    settle_time_s: 0.5
+
+    # ---- 이동
+    linear_vel_mm_s: 100.0                 # (dsr 전용) MoveIt 은 moveit_velocity_scaling 사용
+    joint_vel_deg_s: 40.0
+    motion_timeout_s: 30.0
+    arrival_tolerance_mm: 5.0
+    reach_tolerance_mm: 1.0
+    task_timeout_s: 240.0
+
+    # ---- 실패 처리
+    grip_force: 0.5
+    max_grasp_attempts: 2
+    return_home_on_failure: true

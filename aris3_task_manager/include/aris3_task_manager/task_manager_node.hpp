@@ -9,7 +9,8 @@
 // 입력  /aris3/detected_objects  (aris3_interfaces/DetectedObjectArray)  ← 비전
 // 출력  /aris3/task_status       (aris3_interfaces/TaskStatus)           → GUI·모니터링
 // 사용  /aris3/gripper/command   (aris3_interfaces/srv/GripperCommand)   → 그리퍼 어댑터
-//       <robot_ns>/motion/*      (dsr_msgs2)                             → 두산 컨트롤러(에뮬레이터)
+//       <robot_ns>/motion/*      (dsr_msgs2)                             → 두산 컨트롤러(에뮬레이터)  [robot_backend: dsr]
+//       /move_action 등          (MoveIt 2 move_group)                   → ros2_control           [robot_backend: moveit]
 //       TF world → base_link                                              → 좌표 변환
 //
 // 스레드 구조:
@@ -96,7 +97,8 @@ private:
   void recover(TaskContext & ctx, ErrorCode cause);
 
   Estimate perceive(TaskContext & ctx, const std::string & purpose);
-  void moveTcp(TaskContext & ctx, const Vec3 & tcp_base, const std::string & label);
+  // free=true: 경로 모양 상관없이 (옮기는 구간), false: 공구 직선 (접근·하강·들어 올리기)
+  void moveTcp(TaskContext & ctx, const Vec3 & tcp_base, const std::string & label, bool free = false);
   void enterStage(TaskContext & ctx, Stage stage, const std::string & detail);
   void report(TaskContext & ctx, const std::string & detail, double stage_fraction = -1.0);
   ErrorCode abortReason(const TaskContext & ctx) const;
@@ -146,7 +148,7 @@ private:
   rclcpp::Subscription<aris3_interfaces::msg::DetectedObjectArray>::SharedPtr detections_sub_;
   rclcpp::Publisher<aris3_interfaces::msg::TaskStatus>::SharedPtr status_pub_;
   rclcpp::TimerBase::SharedPtr status_timer_;
-  std::unique_ptr<RobotClient> robot_;
+  std::unique_ptr<RobotBackend> robot_;   // robot_backend: dsr(RobotClient) | moveit(MoveItRobotClient)
   std::unique_ptr<GripperClient> gripper_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

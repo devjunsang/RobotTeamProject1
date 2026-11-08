@@ -9,6 +9,8 @@
 #include "tf2/exceptions.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
+#include "aris3_task_manager/moveit_robot_client.hpp"
+
 namespace aris3_task_manager
 {
 
@@ -66,7 +68,25 @@ TaskManagerNode::TaskManagerNode(const rclcpp::NodeOptions & options)
   ro.joint_acc_deg_s2 = ro.joint_vel_deg_s;
   ro.motion_timeout_s = get_parameter("motion_timeout_s").as_double();
   ro.arrival_tolerance_mm = get_parameter("arrival_tolerance_mm").as_double();
-  robot_ = std::make_unique<RobotClient>(this, client_group_, ro);
+  // 로봇 이동 백엔드: dsr = 두산 서비스 (e0509_sim / 실제 컨트롤러), moveit = MoveIt 2 (aris3 Gazebo)
+  const std::string backend = get_parameter("robot_backend").as_string();
+  if (backend == "moveit") {
+    MoveItRobotClient::Options mo;
+    mo.group = get_parameter("moveit_group").as_string();
+    mo.tip_link = get_parameter("moveit_tip_link").as_string();
+    mo.base_frame = base_frame_;
+    mo.joint_states_topic = get_parameter("moveit_joint_states_topic").as_string();
+    mo.planning_time_s = get_parameter("moveit_planning_time_s").as_double();
+    mo.velocity_scaling = get_parameter("moveit_velocity_scaling").as_double();
+    mo.acceleration_scaling = get_parameter("moveit_acceleration_scaling").as_double();
+    mo.motion_timeout_s = ro.motion_timeout_s;
+    mo.arrival_tolerance_mm = ro.arrival_tolerance_mm;
+    robot_ = std::make_unique<MoveItRobotClient>(this, mo);
+  } else if (backend == "dsr") {
+    robot_ = std::make_unique<RobotClient>(this, client_group_, ro);
+  } else {
+    throw std::runtime_error("robot_backend 는 dsr 또는 moveit (현재: " + backend + ")");
+  }
   gripper_ = std::make_unique<GripperClient>(this, client_group_,
       get_parameter("gripper_service").as_string(), get_parameter("gripper_timeout_s").as_double());
 
@@ -97,9 +117,10 @@ TaskManagerNode::TaskManagerNode(const rclcpp::NodeOptions & options)
     std::bind(&TaskManagerNode::handleAccepted, this, std::placeholders::_1));
 
   publishStatus(TaskStatus::STATE_IDLE, "", "", "작업 대기");
-  RCLCPP_INFO(get_logger(), "준비됨: 액션 %s, 비전 %s, 그리퍼 %s, 로봇 %s",
+  RCLCPP_INFO(get_logger(), "준비됨: 액션 %s, 비전 %s, 그리퍼 %s, 로봇 %s (%s)",
     get_parameter("action_name").as_string().c_str(),
-    get_parameter("detections_topic").as_string().c_str(), gripper_->serviceName().c_str(), ro.ns.c_str());
+    get_parameter("detections_topic").as_string().c_str(), gripper_->serviceName().c_str(),
+    backend == "moveit" ? "move_group" : ro.ns.c_str(), backend.c_str());
 }
 
 // 이미 살아 있는 액션 서버가 있는가?
@@ -136,6 +157,13 @@ void TaskManagerNode::loadParameters()
   // declare_parameter: 이름, 기본값. 실제 값은 config/task_manager.yaml 이 덮어쓴다.
   declare_parameter("action_name", "/aris3/execute_task");
   declare_parameter("robot_ns", "/dsr01");
+  declare_parameter("robot_backend", "dsr");          // dsr | moveit
+  declare_parameter("moveit_group", "arm");
+  declare_parameter("moveit_tip_link", "link_6");
+  declare_parameter("moveit_joint_states_topic", "/e0509_gripper/joint_states");
+  declare_parameter("moveit_planning_time_s", 5.0);
+  declare_parameter("moveit_velocity_scaling", 0.3);
+  declare_parameter("moveit_acceleration_scaling", 0.3);
   declare_parameter("detections_topic", "/aris3/detected_objects");
   declare_parameter("gripper_service", "/aris3/gripper/command");
   declare_parameter("gripper_timeout_s", 10.0);
@@ -501,7 +529,7 @@ void TaskManagerNode::stagePick(TaskContext & ctx)
   if (!g.ok) {
     throw TaskError(ErrorCode::MOTION_FAILED, "그리퍼 열기 실패: " + g.message);
   }
-  moveTcp(ctx, ctx.plan.above_object, "물체 위로");
+  moveTcp(ctx, ctx.plan.above_object, "물체 위로", true);
   moveTcp(ctx, ctx.plan.grasp, "집기 위치로 하강");
   report(ctx, "그리퍼 닫기", 0.6);
   g = gripper_->close(grip_force_);
@@ -521,7 +549,7 @@ void TaskManagerNode::stagePick(TaskContext & ctx)
 void TaskManagerNode::stagePlace(TaskContext & ctx)
 {
   enterStage(ctx, Stage::PLACE, "구역 " + upper(ctx.goal.destination) + "에 놓기");
-  moveTcp(ctx, ctx.plan.above_zone, "구역 위로");
+  moveTcp(ctx, ctx.plan.above_zone, "구역 위로", true);
   moveTcp(ctx, ctx.plan.place, "놓는 위치로 하강");
   auto g = gripper_->open();
   if (!g.ok) {
@@ -592,11 +620,16 @@ void TaskManagerNode::recover(TaskContext & ctx, ErrorCode cause)
 // =====================================================================================
 // 도우미
 // =====================================================================================
-void TaskManagerNode::moveTcp(TaskContext & ctx, const Vec3 & tcp_base, const std::string & label)
+void TaskManagerNode::moveTcp(TaskContext & ctx, const Vec3 & tcp_base, const std::string & label, bool free)
 {
   report(ctx, label + " " + xyz(baseToWorld(tcp_base)) + " (" + world_frame_ + ")",
     std::min(0.95, ctx.stage_fraction + 0.15));
-  robot_->moveLinear(flangePoseMmDeg(tcp_base, geom_, tool_zyz_deg_), label, abortCheck(ctx));
+  const auto pose = flangePoseMmDeg(tcp_base, geom_, tool_zyz_deg_);
+  if (free) {
+    robot_->moveFree(pose, label, abortCheck(ctx));
+  } else {
+    robot_->moveLinear(pose, label, abortCheck(ctx));
+  }
 }
 
 void TaskManagerNode::enterStage(TaskContext & ctx, Stage stage, const std::string & detail)
