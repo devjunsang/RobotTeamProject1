@@ -151,11 +151,15 @@ def main():
     wait_hardware()
 
     load_inactive("joint_state_broadcaster")
+    # 팔: MoveIt 2 실행용 궤적 컨트롤러를 켠다.
+    # dsr_position_controller(관절 직접 시험용)는 같은 관절을 쓰므로 inactive 로만 올려 둔다.
+    # (설정: aris3_bringup/config/gz_controllers.yaml)
+    load_inactive("arm_controller")
     load_inactive("dsr_position_controller")
     load_inactive("gripper_position_controller", CONFIG)
 
     activate("joint_state_broadcaster")
-    activate("dsr_position_controller")
+    activate("arm_controller")
     activate("gripper_position_controller")
 
     result = require([
@@ -165,7 +169,7 @@ def main():
 
     expected = (
         "joint_state_broadcaster",
-        "dsr_position_controller",
+        "arm_controller",
         "gripper_position_controller",
     )
 

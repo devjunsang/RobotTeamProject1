@@ -325,6 +325,15 @@ def generate_sdf(row):
 
     </link>
 
+    <!-- 물체 위치를 /model/<이름>/pose 로 발행 (시뮬레이션 정답 위치: 임시 인식 노드·검증용) -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_model_pose>true</publish_model_pose>
+      <publish_link_pose>false</publish_link_pose>
+      <publish_nested_model_pose>false</publish_nested_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
+
   </model>
 
 </sdf>
