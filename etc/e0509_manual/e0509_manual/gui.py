@@ -3,6 +3,7 @@
   ros2 run e0509_manual manual_controller                 # attach to /e0509_real (real robot bringup)
   ros2 run e0509_manual manual_controller --ns e0509_sim_test --z-min 0
 
+접속 / 접속 끊기 / 재접속 buttons start and stop dsr_bringup2 for the real robot (see bringup.py).
 Buttons move one step per click. Motion buttons work only after '조작 허용' is ticked, and the
 lock re-engages after 2 minutes without a command. Space or Esc = stop, from anywhere in the window.
 The gripper panel drives the RH-P12-RN(A) on the tool flange through DRL programs (see gripper_drl.py);
@@ -10,6 +11,7 @@ arm and gripper commands never run at the same time.
 """
 import argparse
 import os
+import signal
 import sys
 import time
 
@@ -17,10 +19,11 @@ import rclpy
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout, QGroupBox,
-                             QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QShortcut,
+                             QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QShortcut,
                              QSpinBox, QVBoxLayout, QWidget)
 
 from e0509_manual import gripper_drl
+from e0509_manual.bringup import BringupManager, ConnectionController
 from e0509_manual.robot_link import (JOINT_LIMITS, LIMIT_MARGIN, STATE_KO, STANDBY, start_link)
 
 MONO = None  # set in ManualWindow (needs QApplication)
@@ -34,9 +37,12 @@ def _nofocus(w):
 
 
 class ManualWindow(QWidget):
-    def __init__(self, link):
+    def __init__(self, link, mgr):
         super().__init__()
         self.link = link
+        self.mgr = mgr
+        self.conn = ConnectionController(link, mgr)
+        self._seen_connect_seq = 0
         self.last_cmd_time = time.time()
         self._log_shown = 0
         self.motion_buttons = []
@@ -61,6 +67,7 @@ class ManualWindow(QWidget):
         self.lbl_error.setStyleSheet('color: #b00020')
         top.addWidget(QLabel('연결'), 0, 0)
         top.addWidget(self.lbl_conn, 0, 1)
+        top.addLayout(self._conn_buttons(), 0, 2, 2, 1)
         top.addWidget(QLabel('로봇 상태'), 1, 0)
         top.addWidget(self.lbl_state, 1, 1)
         top.addWidget(self.lbl_reason, 2, 1)
@@ -104,6 +111,52 @@ class ManualWindow(QWidget):
         self.timer.timeout.connect(self._refresh)
         self.timer.start(100)
         self._refresh()
+
+    # ------------------------------------------------------------------ connection
+    def _conn_buttons(self):
+        box = QVBoxLayout()
+        self.lbl_bringup = QLabel('')
+        self.lbl_bringup.setAlignment(Qt.AlignRight)
+        row = QHBoxLayout()
+        self.btn_connect = _nofocus(QPushButton('접속'))
+        self.btn_disconnect = _nofocus(QPushButton('접속 끊기'))
+        self.btn_reconnect = _nofocus(QPushButton('재접속'))
+        for b, slot in ((self.btn_connect, self._connect), (self.btn_disconnect, self._disconnect),
+                        (self.btn_reconnect, self._reconnect)):
+            b.setMinimumHeight(32)
+            b.setMinimumWidth(90)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+        box.addWidget(self.lbl_bringup)
+        box.addLayout(row)
+        return box
+
+    def _ask(self, title, text):
+        r = QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        return r == QMessageBox.Yes
+
+    def _connect(self):
+        if self._ask('로봇 접속', f'{self.mgr.host} 로봇에 접속합니다.\n\n'
+                     '접속하면 서보가 켜지고(SAFE_OFF → STANDBY), 펜던트의 제어 권한을 가져오고, '
+                     '자동 모드로 바뀝니다. 팔은 움직이지 않습니다.\n\n'
+                     '로봇 옆에 사람이 있고 비상정지를 누를 수 있습니까?'):
+            self.conn.connect_async()
+
+    def _disconnect(self):
+        if self._ask('접속 끊기', '접속을 끊으면 로봇 서보가 꺼집니다(브레이크가 팔을 잡습니다).\n'
+                     '움직이는 중이면 먼저 정지합니다.\n'
+                     '그리퍼 전원도 함께 꺼지는 것으로 보입니다 — 잡고 있는 물건이 있으면 먼저 내려놓으세요.\n\n'
+                     '계속할까요?'):
+            self.chk_arm.setChecked(False)
+            self.conn.disconnect_async()
+
+    def _reconnect(self):
+        if self._ask('재접속', '접속을 끊고 약 10초 뒤 다시 접속합니다. 서보가 꺼졌다가 다시 켜집니다.\n'
+                     '그리퍼 전원도 함께 꺼지는 것으로 보입니다 — 잡고 있는 물건이 있으면 먼저 내려놓으세요.\n'
+                     '그리퍼가 응답하지 않을 때도 재접속으로 풀립니다.\n\n'
+                     '로봇 옆에 사람이 있고 비상정지를 누를 수 있습니까?'):
+            self.chk_arm.setChecked(False)
+            self.conn.reconnect_async()
 
     # ------------------------------------------------------------------ panels
     def _combo(self, values, unit, default):
@@ -261,12 +314,21 @@ class ManualWindow(QWidget):
     # ------------------------------------------------------------------ periodic refresh
     def _refresh(self):
         L = self.link
+        idle = not self.conn.busy()
+        running = self.mgr.running()
+        self.lbl_bringup.setText(self.mgr.describe())
+        self.btn_connect.setEnabled(idle and not running)
+        self.btn_disconnect.setEnabled(idle and running)
+        self.btn_reconnect.setEnabled(idle and running)
+        if L.connect_seq != self._seen_connect_seq:
+            self._seen_connect_seq = L.connect_seq
+            self._grip_auto_read = False         # read the gripper again after every (re)connect
         connected = L.cli_movej.service_is_ready()
         if L.joints_fresh():
             self.lbl_conn.setText(f'/{L.ns}  ●  관절 각도 수신 중 ({L.js_rate:.0f} Hz)')
             self.lbl_conn.setStyleSheet('color: #2e7d32')
         else:
-            self.lbl_conn.setText(f'/{L.ns}  ○  ' + ('관절 각도 안 들어옴' if connected else '연결 안 됨 (bringup 실행 필요)'))
+            self.lbl_conn.setText(f'/{L.ns}  ○  ' + ('관절 각도 안 들어옴' if connected else '접속 안 됨 — 오른쪽 「접속」 버튼을 누르세요'))
             self.lbl_conn.setStyleSheet('color: #b00020')
 
         sn = L.state_name()
@@ -279,12 +341,14 @@ class ManualWindow(QWidget):
             L.log(f'{ARM_TIMEOUT_SEC}초 동안 명령이 없어 조작을 잠갔습니다')
 
         reason = L.why_not_ready()
+        if not idle:
+            reason = self.mgr.describe()
         if not self.chk_arm.isChecked():
             reason = reason or '조작 허용이 꺼져 있음'
         self.lbl_reason.setText('' if reason is None else f'이동 불가: {reason}')
         for b in self.motion_buttons + self.grip_buttons:
             b.setEnabled(reason is None)
-        read_reason = L.why_not_ready()
+        read_reason = L.why_not_ready() if idle else self.mgr.describe()
         for b in self.grip_read_buttons:
             b.setEnabled(read_reason is None)
         if not self._grip_auto_read and read_reason is None:
@@ -330,6 +394,9 @@ class ManualWindow(QWidget):
 
     def closeEvent(self, ev):
         self.timer.stop()
+        if self.mgr.own_running():
+            print('화면을 닫으면서 이 화면이 실행한 로봇 접속을 끊습니다…', flush=True)
+            self.mgr.stop()
         super().closeEvent(ev)
 
 
@@ -338,6 +405,10 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument('--ns', default='e0509_real', help='robot namespace used by dsr_bringup2 (name:=...)')
     p.add_argument('--z-min', type=float, default=50.0, help='lowest TCP height allowed [mm, base frame]')
+    p.add_argument('--host', default='110.120.1.66', help='E0509 controller IP for the 접속 button')
+    p.add_argument('--port', type=int, default=12345, help='controller port')
+    p.add_argument('--rviz', default='true', choices=['true', 'false'], help='open RViz when connecting')
+    p.add_argument('--connect', action='store_true', help='connect to the robot right away (no question)')
     a = p.parse_args(argv[1:])
 
     # Same display backend as RViz (X11 via Xwayland); create Qt before any ROS thread starts.
@@ -345,9 +416,18 @@ def main(argv=None):
         os.environ['QT_QPA_PLATFORM'] = 'xcb'
     app = QApplication(sys.argv[:1])
     link, ex = start_link(a.ns, a.z_min)
-    w = ManualWindow(link)
-    w.resize(980, 820)
+    mgr = BringupManager(a.ns, a.host, a.port, rviz=(a.rviz == 'true'), log=link.log)
+    w = ManualWindow(link, mgr)
+    w.resize(1000, 840)
     w.show()
+    # Ctrl-C / launch shutdown -> close the window properly (stops our bringup)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: QTimer.singleShot(0, w.close))
+    tick = QTimer()
+    tick.timeout.connect(lambda: None)       # let Python run its signal handlers while Qt is idle
+    tick.start(200)
+    if a.connect and not mgr.running():
+        w.conn.connect_async()
     code = app.exec_()
     ex.shutdown()
     link.destroy_node()
