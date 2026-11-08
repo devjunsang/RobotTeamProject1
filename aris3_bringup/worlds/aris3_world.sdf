@@ -58,6 +58,50 @@
       </link>
     </model>
 
+    <!--
+      작업 탁자 (e0509_sim 작업 셀과 같은 높이)
+      - 상판 윗면 z = 0.75 m. 로봇 베이스와 물체가 이 위에 놓인다.
+      - 1.4 m x 1.4 m, 로봇 베이스(원점) 중심: 로봇 주변 반경 0.45 m 의 물체 4개가 모두 올라간다.
+      - 높이를 바꾸면 simulation.launch.py 의 TABLE_TOP_Z 와 object_layout.csv 의 z 도 같이 바꿀 것.
+    -->
+    <model name="workcell_table">
+      <static>true</static>
+      <link name="table_link">
+        <collision name="top_collision">
+          <pose>0 0 0.73 0 0 0</pose>
+          <geometry><box><size>1.4 1.4 0.04</size></box></geometry>
+        </collision>
+        <visual name="top_visual">
+          <pose>0 0 0.73 0 0 0</pose>
+          <geometry><box><size>1.4 1.4 0.04</size></box></geometry>
+          <material>
+            <ambient>0.55 0.40 0.25 1</ambient>
+            <diffuse>0.55 0.40 0.25 1</diffuse>
+          </material>
+        </visual>
+        <visual name="leg_1">
+          <pose>0.65 0.65 0.355 0 0 0</pose>
+          <geometry><box><size>0.05 0.05 0.71</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+        <visual name="leg_2">
+          <pose>0.65 -0.65 0.355 0 0 0</pose>
+          <geometry><box><size>0.05 0.05 0.71</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+        <visual name="leg_3">
+          <pose>-0.65 0.65 0.355 0 0 0</pose>
+          <geometry><box><size>0.05 0.05 0.71</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+        <visual name="leg_4">
+          <pose>-0.65 -0.65 0.355 0 0 0</pose>
+          <geometry><box><size>0.05 0.05 0.71</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
     <!-- 조명 -->
     <light name="sun" type="directional">
       <pose>0 0 5 0 0 0</pose>

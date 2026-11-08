@@ -30,6 +30,11 @@ from launch_ros.actions import Node
 NAMESPACE = "e0509_gripper"
 # Gazebo 월드에서 로봇 엔티티에 붙일 이름이다.
 ROBOT_NAME = "e0509_with_gripper"
+# 작업 탁자 윗면 높이 [m]. 로봇 베이스가 이 높이에 놓인다 (e0509_sim 작업 셀과 같은 값).
+# 바꾸면 worlds/aris3_world.sdf 의 탁자와 config/object_layout.csv 의 z 도 같이 바꿀 것.
+TABLE_TOP_Z = 0.75
+# 카메라는 탁자 윗면 위 2.0 m 에 둔다 (탁자 도입 전 바닥 위 2.0 m 와 같은 시야).
+CAMERA_Z = TABLE_TOP_Z + 2.0
 
 
 def setup_simulation(context, *args, **kwargs):
@@ -57,7 +62,9 @@ def setup_simulation(context, *args, **kwargs):
 
     # xacro CLI를 호출해 Gazebo용 URDF를 생성한다.
     subprocess.run(
-        ["xacro", str(xacro_file), "use_gazebo:=true", "-o", str(urdf_file)],
+        # base_z: URDF 의 world -> base_link 높이. 로봇을 탁자 위에 올린다.
+        ["xacro", str(xacro_file), "use_gazebo:=true", f"base_z:={TABLE_TOP_Z}",
+         "-o", str(urdf_file)],
         check=True,
     )
 
@@ -148,7 +155,7 @@ def setup_simulation(context, *args, **kwargs):
         output="screen",
     )
 
-    # PHASE 3 / STEP 03: Gazebo 월드 원점 위 1.3m에 고정 카메라를 설치한다.
+    # PHASE 3 / STEP 03: 로봇 베이스 바로 위(탁자 윗면 위 2.0m)에 고정 카메라를 설치한다.
     spawn_camera = Node(
         package="ros_gz_sim",
         executable="create",
@@ -158,7 +165,7 @@ def setup_simulation(context, *args, **kwargs):
             "-file", str(camera_file),
             "-x", "0",
             "-y", "0",
-            "-z", "2.0",
+            "-z", str(CAMERA_Z),
         ],
         output="screen",
     )
@@ -182,7 +189,7 @@ def setup_simulation(context, *args, **kwargs):
     # ========================================================
 
     # world -> overhead_camera_frame
-    # Gazebo 카메라의 설치 위치 (0, 0, 2.0m)
+    # Gazebo 카메라의 설치 위치 (0, 0, CAMERA_Z). world = Gazebo 바닥 원점
     camera_mount_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -190,7 +197,7 @@ def setup_simulation(context, *args, **kwargs):
         arguments=[
             "--x", "0",
             "--y", "0",
-            "--z", "2.0",
+            "--z", str(CAMERA_Z),
             "--roll", "0",
             "--pitch", "0",
             "--yaw", "0",

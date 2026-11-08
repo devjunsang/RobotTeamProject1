@@ -11,6 +11,9 @@
   <xacro:arg name="mode"         default="virtual"/>
   <xacro:arg name="model"        default="e0509"/>
   <xacro:arg name="update_rate"  default="100"/>
+  <!-- world 원점에서 로봇 베이스까지의 높이 [m]. 0 = 바닥 (실물·기존 launch 기본값),
+       0.75 = 시뮬레이션 탁자 위 (aris3_bringup/simulation.launch.py 가 전달) -->
+  <xacro:arg name="base_z"       default="0.0"/>
 
   <!-- Local properties -->
   <xacro:property name="gz"          value="$(arg use_gazebo)"/>
@@ -28,7 +31,7 @@
   <!-- World link -->
   <link name="world"/>
   <joint name="world_fixed" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="0 0 $(arg base_z)" rpy="0 0 0"/>
     <parent link="world"/>
     <child link="base_link"/>
   </joint>

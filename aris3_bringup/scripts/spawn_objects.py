@@ -4,14 +4,14 @@
 # 파일명: spawn_objects.py
 #
 # [개발 목적]
-# Gazebo 시뮬레이션 환경에 색상이 다른 정육면체 4개를
-# 지정된 좌표에 자동으로 생성하기 위한 프로그램이다.
+# Gazebo 시뮬레이션 탁자 위에 색이 다른 물체들을
+# config/object_layout.csv 의 좌표에 자동으로 생성하기 위한 프로그램이다.
 #
-# [생성할 객체]
-# 12시 방향 : red_box    (빨강)
-#  3시 방향 : blue_box   (파랑)
-#  6시 방향 : yellow_box (노랑)
-#  9시 방향 : green_box  (초록)
+# [생성할 객체] (2026-11-08 변경)
+# 빨강·파랑·노랑 정육면체 3개 (한 변 5 cm), 로봇 베이스 중심 반경 0.45 m
+#   12시 방향 (+y) : red_cube
+#    3시 방향 (+x) : blue_cube
+#    9시 방향 (-x) : yellow_cube
 #
 # [주요 기능]
 # 1. CSV 파일에서 객체의 이름, 색상, 위치, 크기 읽기
@@ -108,12 +108,36 @@ COLORS = {
 #
 # CSV에 정확히 이 네 가지 객체가 존재하는지
 # 확인하는 데 사용한다.
-EXPECTED = {
-    "red_box",
-    "blue_box",
-    "yellow_box",
-    "green_box",
-}
+#
+# [2026-11-08 변경] 탁자 위 물체: 빨강·파랑·노랑 정육면체(cube) 3개.
+# 이름 규칙: "<색>_<도형>" (예: red_cube). 도형 생성기는 circle/square/triangle 도 지원한다.
+SHAPES = ("cube",)
+COLORS_USED = ("red", "blue", "yellow")
+EXPECTED = {f"{c}_{s}" for c in COLORS_USED for s in SHAPES}
+
+
+def shape_geometry(shape, width, height):
+    """도형별 SDF <geometry> 와 그 기하 중심을 링크 원점에 맞추는 pose.
+
+    circle   : 지름 width 원기둥
+    square   : 한 변 width 사각 기둥
+    triangle : 한 변 width 정삼각 기둥 (polyline 을 z=0 에서 height 만큼 돌출하므로
+               pose 로 -height/2 내려 원점이 물체 중심이 되게 한다)
+    """
+    if shape == "circle":
+        geo = f"<cylinder><radius>{width / 2}</radius><length>{height}</length></cylinder>"
+        return geo, "0 0 0 0 0 0"
+    if shape in ("square", "cube"):   # cube 는 width == height 인 사각 기둥
+        return f"<box><size>{width} {width} {height}</size></box>", "0 0 0 0 0 0"
+    if shape == "triangle":
+        r = width / math.sqrt(3)            # 무게중심 -> 꼭짓점 거리
+        pts = "".join(
+            f"<point>{r * math.cos(math.radians(a)):.5f} {r * math.sin(math.radians(a)):.5f}</point>"
+            for a in (0, 120, 240)
+        )
+        return (f"<polyline>{pts}<height>{height}</height></polyline>",
+                f"0 0 {-height / 2} 0 0 0")
+    raise ValueError(f"지원하지 않는 도형: {shape}")
 
 
 # ------------------------------------------------------------
@@ -175,6 +199,9 @@ def generate_sdf(row):
     # 올바른 3D 모델을 생성할 수 없다.
     if width <= 0 or height <= 0:
         raise ValueError(f"잘못된 객체 크기: {name}")
+
+    # 도형별 충돌·표시 형상 (collision 과 visual 이 같은 형상을 쓴다)
+    geometry, geometry_pose = shape_geometry(row["shape"], width, height)
 
     # --------------------------------------------------------
     # 5-1. 물리 속성 설정
@@ -258,12 +285,17 @@ def generate_sdf(row):
       -->
       <collision name="collision">
 
+        <pose>{geometry_pose}</pose>
         <geometry>
-          <box>
-            <!-- 가로 세로 높이 (m) -->
-            <size>{width} {width} {height}</size>
-          </box>
+          {geometry}
         </geometry>
+
+        <!-- 마찰 파지를 위해 마찰 계수를 높게 둔다 (그리퍼 손가락과의 미끄러짐 방지) -->
+        <surface>
+          <friction>
+            <ode><mu>1.0</mu><mu2>1.0</mu2></ode>
+          </friction>
+        </surface>
 
       </collision>
 
@@ -273,11 +305,9 @@ def generate_sdf(row):
       -->
       <visual name="visual">
 
+        <pose>{geometry_pose}</pose>
         <geometry>
-          <box>
-            <!-- 화면에 보이는 정육면체 크기 -->
-            <size>{width} {width} {height}</size>
-          </box>
+          {geometry}
         </geometry>
 
         <!-- 객체 표면의 색상 설정 -->
@@ -380,8 +410,11 @@ def main():
     # 조건 2: 객체 이름이 예상 목록과 일치하는가?
     #
     # 두 조건 중 하나라도 만족하지 않으면 중단한다.
-    if len(rows) != 4 or set(names) != EXPECTED:
-        raise RuntimeError("객체 4개 구성이 올바르지 않습니다.")
+    if len(rows) != len(EXPECTED) or set(names) != EXPECTED:
+        raise RuntimeError(
+            f"객체 구성이 올바르지 않습니다: 색 {COLORS_USED} x 도형 {SHAPES} "
+            f"{len(EXPECTED)}개가 필요 (현재 {sorted(names)})"
+        )
 
     # --------------------------------------------------------
     # 6-5. 각 객체에 대해 SDF 생성
@@ -454,6 +487,8 @@ def main():
                 "-x", str(row["x"]),
                 "-y", str(row["y"]),
                 "-z", str(row["z"]),
+                # 물체 회전(yaw). CSV 는 도(deg), create 는 라디안
+                "-Y", str(math.radians(float(row["angle_deg"]))),
             ]
 
             # 외부 명령어를 실제 실행한다.

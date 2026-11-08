@@ -16,11 +16,13 @@
 # ============================================================
 
 import csv
+import math
 from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
+from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -31,6 +33,45 @@ COLORS = {
     "yellow": (1.0, 1.0, 0.0, 1.0),
     "green": (0.0, 1.0, 0.0, 1.0),
 }
+
+
+def set_shape(marker, shape, width, height):
+    """도형에 맞는 Marker 종류와 크기를 정한다 (단위 m, 기준점 = 물체 중심).
+
+    circle   -> CYLINDER (지름 width)
+    square   -> CUBE (한 변 width)
+    triangle -> TRIANGLE_LIST 로 정삼각 기둥 (한 변 width), spawn_objects.py 와 같은 꼭짓점
+    """
+    if shape == "circle":
+        marker.type = Marker.CYLINDER
+        marker.scale.x = marker.scale.y = width
+        marker.scale.z = height
+        return
+    if shape != "triangle":
+        marker.type = Marker.CUBE
+        marker.scale.x = marker.scale.y = width
+        marker.scale.z = height
+        return
+
+    marker.type = Marker.TRIANGLE_LIST
+    marker.scale.x = marker.scale.y = marker.scale.z = 1.0
+    r = width / math.sqrt(3.0)
+    corners = [(r * math.cos(math.radians(a)), r * math.sin(math.radians(a)))
+               for a in (0, 120, 240)]
+    lo, hi = -height / 2.0, height / 2.0
+
+    def p(xy, z):
+        return Point(x=xy[0], y=xy[1], z=z)
+
+    a, b, c = corners
+    tris = [(a, b, c, hi), (a, c, b, lo)]          # 윗면, 아랫면
+    pts = []
+    for t in tris:
+        pts += [p(t[0], t[3]), p(t[1], t[3]), p(t[2], t[3])]
+    for i in range(3):                               # 옆면 3개 (사각형 = 삼각형 2개)
+        u, v = corners[i], corners[(i + 1) % 3]
+        pts += [p(u, lo), p(v, lo), p(v, hi), p(u, lo), p(v, hi), p(u, hi)]
+    marker.points = pts
 
 
 class ObjectMarkerPublisher(Node):
@@ -86,8 +127,9 @@ class ObjectMarkerPublisher(Node):
             # 각 객체의 고유 ID
             marker.id = index
 
-            # 정육면체 표시
-            marker.type = Marker.CUBE
+            # 도형별 마커 (spawn_objects.py 의 Gazebo 형상과 같은 크기)
+            set_shape(marker, obj.get("shape", "square"),
+                      float(obj["width"]), float(obj["height"]))
             marker.action = Marker.ADD
 
             # CSV에 저장된 월드 좌표
@@ -95,13 +137,10 @@ class ObjectMarkerPublisher(Node):
             marker.pose.position.y = float(obj["y"])
             marker.pose.position.z = float(obj["z"])
 
-            # 회전하지 않은 기본 자세
-            marker.pose.orientation.w = 1.0
-
-            # 객체의 실제 크기(m)
-            marker.scale.x = float(obj["width"])
-            marker.scale.y = float(obj["width"])
-            marker.scale.z = float(obj["height"])
+            # CSV 의 yaw(angle_deg) 를 z축 회전 쿼터니언으로 (Gazebo 스폰과 같은 회전)
+            yaw = math.radians(float(obj.get("angle_deg") or 0.0))
+            marker.pose.orientation.z = math.sin(yaw / 2.0)
+            marker.pose.orientation.w = math.cos(yaw / 2.0)
 
             # 객체 색상
             rgba = COLORS[obj["color"]]
