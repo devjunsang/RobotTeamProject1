@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ARIS3 개발 방향 확정 (2026-11-08)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: #fbf8f6; --surface: #ffffff; --fg: #231a1a; --muted: #6b5e5c; --line: #e4d9d4;
+  --red: #a3141c; --gold: #9a6f05; --cyan: #0b7c88; --code-bg: #f3ece8; --quote: #fbefe9;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px;
+  padding-block: 32px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+aside.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px);
+  overflow-y: auto; font-size: 13.5px; line-height: 1.5; border-right: 1px solid var(--line); padding-right: 16px; }
+aside.toc .home { display: inline-block; margin-bottom: 12px; color: var(--muted); text-decoration: none; font-size: 13px; }
+aside.toc .toc-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; margin: 6px 0 8px; }
+aside.toc ul { list-style: none; padding: 0; margin: 0; }
+aside.toc li { margin: 5px 0; }
+aside.toc ul ul { padding-left: 12px; border-left: 1px solid var(--line); margin-left: 2px; }
+aside.toc a { color: var(--fg); text-decoration: none; }
+aside.toc a:hover { color: var(--cyan); }
+main { min-width: 0; }
+header.doc { border-bottom: 3px solid var(--red); margin-bottom: 8px; padding-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+main h1 { font-size: clamp(26px, 4.5vw, 36px); line-height: 1.25; margin: 4px 0 6px; text-wrap: balance; }
+main h2 { font-size: 23px; margin: 48px 0 12px; padding-left: 12px; border-left: 5px solid var(--red); text-wrap: balance; }
+main h3 { font-size: 18px; margin: 30px 0 8px; }
+main h4 { font-size: 16px; margin: 22px 0 6px; color: var(--muted); }
+main p, main li { max-width: 72ch; }
+main a { color: var(--cyan); }
+main a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+main ul, main ol { padding-left: 1.4em; }
+main li { margin: 3px 0; }
+main hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: 13px; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote); border-left: 4px solid var(--gold); border-radius: 0 6px 6px 0; }
+blockquote p { margin: 4px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12.5px; letter-spacing: .04em; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+.doclist { display: grid; gap: 12px; margin-top: 18px; }
+.doclist a { display: block; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  text-decoration: none; color: var(--fg); }
+.doclist a:hover { border-color: var(--red); }
+.doclist b { display: block; font-size: 17px; }
+.doclist span { color: var(--muted); font-size: 14px; }
+.foot { margin-top: 48px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  aside.toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="toc" aria-label="목차"><a class="home" href="index.html">← 문서 목록</a><div class="toc-title">목차</div><div class="toc">
+<ul>
+<li><a href="#1">1. 확정한 결정</a></li>
+<li><a href="#2-gate-2026-11-08">2. 현재 상태 (마스터플랜 GATE 기준, 2026-11-08 직접 확인)</a></li>
+<li><a href="#3">3. 다음 작업 순서</a></li>
+<li><a href="#4">4. 맞춰야 할 계약 (인터페이스)</a></li>
+<li><a href="#5">5. 실행 방법 (현재)</a></li>
+</ul>
+</div>
+</aside>
+<main>
+<header class="doc"><div class="eyebrow">ARIS3 · docs/ARIS3_개발방향_확정.md</div><h1>ARIS3 개발 방향 확정 (2026-11-08)</h1></header>
+
+<p>기준 문서: <code>etc/e0509_manual/ARIS3_전체개발_마스터플랜.html</code>, <code>ARIS3_상세설계_V0.2_전체아키텍처.html</code>
+이 문서는 두 문서의 목표를 유지하면서 <strong>현재 저장소 상태를 반영해 확정한 결정</strong>과 다음 작업 순서를 적는다.</p>
+<h2 id="1">1. 확정한 결정</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>항목</th>
+<th>결정</th>
+<th>이유</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>경로 계획·실행</td>
+<td><strong>MoveIt 2</strong> (<code>aris3_moveit_config</code>) → Gazebo <code>arm_controller</code> (JointTrajectoryController)</td>
+<td>마스터플랜·상세설계 그대로. 충돌 검사·경로 계획 확보</td>
+</tr>
+<tr>
+<td>Task Manager 이동</td>
+<td>기존 두산 서비스(move_line 등) 백엔드는 e0509_sim 용으로 남기고, <strong>MoveIt 백엔드를 추가</strong> (<code>RobotClient</code> 교체)</td>
+<td>이미 검증된 상태 머신·실패 처리 재사용</td>
+</tr>
+<tr>
+<td>작업 물체</td>
+<td><strong>빨강·파랑·노랑 정육면체 3개</strong> (한 변 5 cm), 로봇 중심 반경 0.45 m의 12시(+y) 빨강, 3시(+x) 파랑, 9시(−x) 노랑</td>
+<td>팀 결정 (2026-11-08). <strong>도형은 정육면체 하나뿐 → 물체는 색으로만 구분</strong>. 원·삼각은 쓰지 않음 (도형 생성기는 지원은 하므로 필요해지면 <code>object_layout.csv</code> 만 바꾸면 됨)</td>
+</tr>
+<tr>
+<td>작업 공간</td>
+<td>탁자 윗면 z = 0.75 m, 로봇 베이스가 탁자 위 (e0509_sim 과 같은 높이)</td>
+<td>실물 작업 셀과 비슷한 배치</td>
+</tr>
+<tr>
+<td>음성 PLACE</td>
+<td>"내려놔 / 돌려놔 / 원래대로" = <strong>집었던 원래 자리</strong>에 놓기</td>
+<td>MARK1 파서에 위치 단어가 없음</td>
+</tr>
+<tr>
+<td>음성 PICK</td>
+<td><strong>색 필수, 도형 선택</strong> ("파란 거 집어줘", "노란 큐브 집어줘"). 조건에 맞는 물체가 여러 개면 실행하지 않고 되묻기</td>
+<td>모양이 모두 같아 도형으로는 고를 수 없음. 현재 Task Manager 규칙(색 필수)과 같음</td>
+</tr>
+<tr>
+<td>파지</td>
+<td><strong>실제 마찰 파지가 기본</strong>, 시연 안정용 '손에 붙이기(DetachableJoint)'는 launch 옵션. 두 결과는 따로 기록</td>
+<td>마스터플랜 13단계(물리 파지 검증) 유지</td>
+</tr>
+<tr>
+<td>음성 경로</td>
+<td>~~Windows MARK1 → TCP~~ → <strong>Windows PC 쓰지 않음.</strong> Ubuntu <code>aris3_voice</code> 노드(마이크·Whisper·해석) + GUI 「누르고 말하기」 버튼</td>
+<td>MARK1 의 Whisper 설정·파서를 옮겨 씀 (2026-11-08 결정)</td>
+</tr>
+<tr>
+<td>관제 GUI</td>
+<td><strong>하나의 PyQt5 화면 <code>aris3_gui</code></strong> (시뮬레이션·실물). 마스터플랜 07장 목업 배치. 기존 <code>e0509_manual/gui.py</code>·안전 코드 재사용</td>
+<td>C++ 대신 Python: 기존 코드 재사용·음성과 같은 언어 (2026-11-08 결정)</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-gate-2026-11-08">2. 현재 상태 (마스터플랜 GATE 기준, 2026-11-08 직접 확인)</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>GATE</th>
+<th>상태</th>
+<th>근거</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 관절 제어</td>
+<td>✅</td>
+<td>물리 실행 중 joint_1 0.5 rad 명령 → 도달 후 자세 유지</td>
+</tr>
+<tr>
+<td>2 그리퍼 개폐</td>
+<td>✅ (개폐만)</td>
+<td>0.8 닫기 / 0.0 열기, 손가락 4개 mimic 추종. 물체 파지는 미검증</td>
+</tr>
+<tr>
+<td>3 인식</td>
+<td>🔶</td>
+<td>큐브 3개 + Top View 카메라 15 Hz. <strong>검출 노드(aris3_vision) 없음</strong></td>
+</tr>
+<tr>
+<td>4 Pick &amp; Place</td>
+<td>✅ (보조 파지) / 🔶 (마찰 파지)</td>
+<td>Task Manager + MoveIt: 큐브 3개 → 구역 A/B/C, 오차 0.4~3.7 mm. 순수 마찰 파지는 옮기다 미끄러져 놓기 오차 36.8 mm</td>
+</tr>
+<tr>
+<td>5 음성</td>
+<td>🔶</td>
+<td><code>aris3_voice</code> 노드 + GUI 연동, 문장 입력 → 작업 실행까지 성공. <strong>실제 마이크 인식률 측정 전</strong></td>
+</tr>
+<tr>
+<td>도전 GUI</td>
+<td>🔶</td>
+<td><code>aris3_gui</code> 1차: 시뮬레이션 모드 전체 흐름 동작 (「노란 큐브 집어줘」 → 구역 A 0.2 mm)</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3">3. 다음 작업 순서</h2>
+<ol>
+<li>
+<p><strong>Task Manager MoveIt 백엔드</strong> — <code>RobotClient</code> 인터페이스를 추상화하고 <code>MoveItRobotClient</code> 추가
+   (move_group_interface, 접근/하강은 Pilz LIN 직선 이동). 고정 좌표로 집기·놓기 시퀀스 확인.</p>
+</li>
+<li>
+<p><strong>그리퍼 어댑터</strong> — <code>/aris3/gripper/command</code> 를 Gazebo <code>gripper_position_controller</code> 에 연결
+   (aris3_control 또는 aris3_sim_bridge). 손가락 위치·정지로 <code>holding</code> 판정.</p>
+</li>
+<li>
+<p><strong>마찰 파지 검증</strong> — 물체 질량·마찰·그리퍼 힘 조정. 실패 시 DetachableJoint 보조 옵션.</p>
+</li>
+<li>
+<p><strong>aris3_vision (C++ OpenCV)</strong> — Top View 영상 → 색·도형 → 탁자 평면 투영 → <code>/aris3/detected_objects</code>.
+   카메라가 높아(탁자 위 2 m) 물체가 작게 보임 → 카메라 높이·화각 재조정 검토.</p>
+</li>
+<li>
+<p><strong>aris3_voice 브리지</strong> — TCP :5000 서버 (MARK1 JSON 수신, <code>{"status":"received"}</code> 응답) → <code>ExecuteTask</code>.</p>
+</li>
+<li>통합 시연 → Qt GUI (도전).</li>
+</ol>
+<h2 id="4">4. 맞춰야 할 계약 (인터페이스)</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>MARK1 음성</th>
+<th>현재 ExecuteTask (Task Manager)</th>
+<th>맞추는 방향</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>동작</td>
+<td><code>pick</code> / <code>place</code> 따로</td>
+<td><code>pick_place</code> 한 번에</td>
+<td><code>task_type</code> 에 <code>pick</code>, <code>place</code> 추가 (메시지 필드 변경 없음)</td>
+</tr>
+<tr>
+<td>대상</td>
+<td><code>target</code>(도형) 필수, <code>color</code> 선택</td>
+<td><code>target_color</code> 필수</td>
+<td><strong>MARK1 파서를 색 필수·도형 선택으로 변경</strong> (Task Manager 는 그대로)</td>
+</tr>
+<tr>
+<td>놓는 곳</td>
+<td>없음 (원래 자리)</td>
+<td><code>destination</code> 구역 필수</td>
+<td><code>place</code> 의 <code>destination</code> 이 비면 집었던 자리</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>MARK1 파서 수정 필요 (2026-11-08 시험: 현재 물체 표현 0/3):</strong></p>
+<ul>
+<li>색에 '노란/노랑/노란색 → yellow' 추가</li>
+<li>'큐브/정육면체/네모/사각형' → <code>cube</code> (도형은 선택 사항이므로 없어도 됨)</li>
+<li>PICK 유효 조건: 도형 필수 → <strong>색 필수</strong></li>
+</ul>
+<p>메시지 정의를 바꾸게 되면 <code>aris3_interfaces</code> 를 쓰는 모든 패키지를 다시 빌드한다.</p>
+<h2 id="5">5. 실행 방법 (현재)</h2>
+<pre><code class="language-bash"># 터미널 1: Gazebo (탁자 + 로봇 + 큐브 3개 + 카메라, 팔 궤적 컨트롤러)
+ros2 launch aris3_bringup simulation.launch.py
+# 터미널 2: MoveIt 2 (rviz:=true 로 MotionPlanning 패널)
+ros2 launch aris3_moveit_config move_group.launch.py
+# 터미널 3: 연동 시험 (home → 파란 큐브 위 → home)
+ros2 run aris3_moveit_config moveit_smoke_test.py --ros-args -p use_sim_time:=true
+</code></pre>
+<p>변경 전 원본 파일: <code>backup/20261108_before_table/</code> (README 참고)</p>
+<p class="foot">원문: <code>docs/ARIS3_개발방향_확정.md</code> · <code>scripts/docs_md_to_html.py</code> 로 만든 페이지 (원문을 고친 뒤 다시 돌리면 갱신)</p>
+</main>
+</div>
+</body>
+</html>

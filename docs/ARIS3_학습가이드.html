@@ -1,0 +1,452 @@
+<title>ARIS3 학습 가이드</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 레이아웃: 한 줄 읽기 폭의 본문 + 넓은 그림은 가로 스크롤 상자. 색은 ARIS 테마(레드·골드·시안)를 차분하게 */
+:root {
+  --bg: #fbf8f6; --surface: #ffffff; --fg: #231a1a; --muted: #6b5e5c; --line: #e4d9d4;
+  --red: #a3141c; --gold: #9a6f05; --cyan: #0b7c88; --amber: #b25e00; --code-bg: #f3ece8;
+  --topic: #0b7c88; --service: #9a6f05; --action: #b3141c; --box: #fffdfb; --box-line: #cdbcb5;
+  --sim: #e8f4f5; --real: #fbefe9;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --amber: #f2a33a; --code-bg: #24181a;
+  --topic: #5ff4ff; --service: #e8b931; --action: #ff6b70; --box: #1f1517; --box-line: #574240;
+  --sim: #10262a; --real: #2c1615; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --amber: #f2a33a; --code-bg: #24181a;
+  --topic: #5ff4ff; --service: #e8b931; --action: #ff6b70; --box: #1f1517; --box-line: #574240;
+  --sim: #10262a; --real: #2c1615; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.7; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { border-bottom: 3px solid var(--red); padding-bottom: 20px; margin-bottom: 28px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.2; margin: 6px 0 10px; text-wrap: balance; }
+h2 { font-size: 24px; margin: 56px 0 12px; text-wrap: balance; border-left: 5px solid var(--red); padding-left: 12px; }
+h3 { font-size: 18px; margin: 28px 0 8px; color: var(--fg); }
+p, li { max-width: 68ch; }
+.lead { color: var(--muted); font-size: 17px; }
+code, .mono { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { font-family: var(--font-mono); font-size: 13px; background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 14px; }
+nav.toc a { color: var(--cyan); text-decoration: none; border-bottom: 1px dotted var(--cyan); }
+nav.toc a:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 16px 0; }
+.figure svg { display: block; min-width: 900px; width: 100%; height: auto; }
+.figure.narrow svg { min-width: 640px; }
+.caption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+.legend span::before { content: ""; display: inline-block; width: 26px; height: 0; margin-right: 6px; vertical-align: middle; border-top: 3px solid; }
+.lg-topic::before { border-color: var(--topic) !important; }
+.lg-service::before { border-color: var(--service) !important; border-top-style: dashed !important; }
+.lg-action::before { border-color: var(--action) !important; border-top-width: 4px !important; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 720px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; letter-spacing: .06em; color: var(--muted); background: var(--code-bg); }
+td.k { white-space: nowrap; font-weight: 600; }
+.t-topic { color: var(--topic); } .t-service { color: var(--service); } .t-action { color: var(--action); }
+.case { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 4px 18px 14px; margin: 16px 0; }
+.case dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 14px; margin: 8px 0 0; }
+.case dt { font-weight: 700; color: var(--gold); font-size: 14px; }
+.case dd { margin: 0; min-width: 0; }
+.tasks { display: grid; gap: 12px; }
+.task { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 12px 16px; }
+.level { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; padding: 2px 8px; border-radius: 3px; border: 1px solid; margin-right: 6px; }
+.lv1 { color: var(--cyan); } .lv2 { color: var(--gold); } .lv3 { color: var(--red); }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 34px; margin: 8px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 2px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--red); color: #fff; font-size: 13px; text-align: center; line-height: 24px; font-weight: 700; }
+/* SVG 색: 테마 토큰으로 */
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .lbl { font-family: var(--font-mono); font-size: 11px; }
+svg .small { font-size: 11px; fill: var(--muted); }
+svg .box { fill: var(--box); stroke: var(--box-line); stroke-width: 1.5; }
+svg .box-key { fill: var(--box); stroke: var(--red); stroke-width: 2.5; }
+svg .zone-sim { fill: var(--sim); stroke: none; }
+svg .zone-real { fill: var(--real); stroke: none; }
+svg .zone-title { font-size: 13px; font-weight: 700; fill: var(--muted); letter-spacing: .05em; }
+svg .e-topic { stroke: var(--topic); stroke-width: 2; fill: none; }
+svg .e-service { stroke: var(--service); stroke-width: 2; stroke-dasharray: 7 5; fill: none; }
+svg .e-action { stroke: var(--action); stroke-width: 3.2; fill: none; }
+svg .e-plain { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+svg .c-topic { fill: var(--topic); } svg .c-service { fill: var(--service); } svg .c-action { fill: var(--action); }
+svg .c-muted { fill: var(--muted); }
+svg .lane { stroke: var(--line); stroke-width: 1; }
+svg .hl { fill: var(--gold); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">ARIS3 · Doosan E0509 + RH-P12-RN-A · ROS 2 Jazzy</div>
+  <h1>ARIS3 학습 가이드</h1>
+  <p class="lead">코드는 같이 만들었지만, 왜 그렇게 짰는지는 직접 이해해야 실물 앞에서 판단할 수 있습니다.
+  이 문서는 모듈 사이의 통신 흐름, 실물 경로가 동작하는 순서, 안전장치, 실제로 겪은 버그, 직접 해 볼 과제를 모았습니다.</p>
+  <nav class="toc" aria-label="목차">
+    <a href="#how">학습 순서</a><a href="#flow">전체 통신 흐름도</a><a href="#table">인터페이스 표</a>
+    <a href="#pick">집어서 옮기기 순서</a><a href="#threads">GUI 스레드 구조</a><a href="#safety">안전장치 층</a>
+    <a href="#bugs">버그 사례집</a><a href="#tasks">직접 해 볼 과제</a><a href="#read">코드 읽기 순서</a>
+  </nav>
+</header>
+
+<section id="how">
+<h2>학습 순서</h2>
+<ol class="steps">
+  <li><b>그림부터:</b> 아래 「전체 통신 흐름도」 에서 모듈 이름과 화살표 종류(토픽·서비스·액션)를 손으로 따라가 봅니다.</li>
+  <li><b>직접 보기:</b> 시뮬레이션을 띄우고 <code>ros2 topic list</code>, <code>ros2 action list</code>, <code>ros2 service list</code> 로 그림의 이름이 실제로 있는지 확인합니다.</li>
+  <li><b>한 동작 따라가기:</b> 「집어서 옮기기 순서」 그림을 보며 <code>ros2 topic echo /aris3/real/state</code> 로 상태가 바뀌는 것을 봅니다.</li>
+  <li><b>버그 사례 읽기:</b> 각 사례의 「확인 방법」 명령을 직접 쳐 봅니다. 교재에 없는 현장 감각은 여기서 생깁니다.</li>
+  <li><b>과제 하나:</b> 쉬운 과제부터 직접 구현하고, 테스트가 통과하면 리뷰를 받습니다.</li>
+</ol>
+</section>
+
+<section id="flow">
+<h2>전체 통신 흐름도</h2>
+<p>모든 모듈은 ROS 2 공용 인터페이스(<code>aris3_interfaces</code>)로만 이야기합니다. GUI 는 로봇에 직접 붙지 않습니다.
+같은 GUI 가 시뮬레이션에서는 위쪽(초록 띠) 경로를, 실물에서는 아래쪽(붉은 띠) 경로를 씁니다.</p>
+<div class="legend"><span class="lg-topic">토픽 (계속 흘려보냄)</span><span class="lg-service">서비스 (묻고 바로 답)</span><span class="lg-action">액션 (오래 걸림 · 진행 · 취소)</span></div>
+<div class="figure">
+<svg viewBox="0 0 1400 1000" role="img" aria-label="ARIS3 모듈 사이 토픽·서비스·액션 전체 흐름도">
+  <defs>
+    <marker id="aT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="c-topic"/></marker>
+    <marker id="aS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="c-service"/></marker>
+    <marker id="aA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="c-action"/></marker>
+    <marker id="aP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="c-muted"/></marker>
+  </defs>
+  <!-- 띠: 시뮬레이션 경로 / 실물 경로 -->
+  <rect class="zone-sim" x="840" y="10" width="550" height="420" rx="10"/>
+  <text class="zone-title" x="856" y="34">시뮬레이션 경로 (aris3_sim_full)</text>
+  <rect class="zone-real" x="840" y="450" width="550" height="540" rx="10"/>
+  <text class="zone-title" x="856" y="474">실물 경로 (aris3_real_bridge) · 가상 컨트롤러로도 시험</text>
+
+  <!-- 입력 쪽 -->
+  <rect class="box" x="20" y="60" width="150" height="56" rx="6"/><text x="95" y="84" text-anchor="middle" font-weight="700">사람 (말)</text><text x="95" y="103" text-anchor="middle" class="small">마이크</text>
+  <rect class="box" x="20" y="400" width="150" height="70" rx="6"/><text x="95" y="428" text-anchor="middle" font-weight="700">위쪽 카메라</text><text x="95" y="447" text-anchor="middle" class="small">D455 / Gazebo 카메라</text>
+  <rect class="box" x="250" y="50" width="200" height="76" rx="6"/><text x="350" y="78" text-anchor="middle" font-weight="700">aris3_voice</text><text x="350" y="97" text-anchor="middle" class="small">Whisper · 호출어 「아리스」</text><text x="350" y="113" text-anchor="middle" class="small">명령 해석</text>
+  <rect class="box" x="250" y="300" width="200" height="66" rx="6"/><text x="350" y="327" text-anchor="middle" font-weight="700">색 검출</text><text x="350" y="346" text-anchor="middle" class="small">scripts/aris3_color_detector.py</text>
+  <rect class="box" x="250" y="520" width="200" height="76" rx="6"/><text x="350" y="548" text-anchor="middle" font-weight="700">aris3_gesture</text><text x="350" y="567" text-anchor="middle" class="small">MediaPipe 손 21점</text><text x="350" y="583" text-anchor="middle" class="small">선택·확정 판단</text>
+
+  <!-- GUI -->
+  <rect class="box-key" x="540" y="180" width="250" height="330" rx="10"/>
+  <text x="665" y="214" text-anchor="middle" font-weight="700" font-size="18">GUI</text>
+  <text x="665" y="236" text-anchor="middle" class="small">aris3_gui (PyQt) · ARIS (C++ Qt)</text>
+  <text x="560" y="272" class="small">· 화면·확인창·「조작 허용」</text>
+  <text x="560" y="292" class="small">· 카메라 클릭 = 이거 / 저기</text>
+  <text x="560" y="312" class="small">· 작업 큐 · 단계 진행</text>
+  <text x="560" y="332" class="small">· 정지 (Space / Esc)</text>
+  <text x="560" y="352" class="small">· 로그 = /rosout 구독</text>
+  <text x="560" y="390" class="small">로봇 안전 코드는 여기 없음</text>
+  <text x="560" y="408" class="small">(Task Manager · 브리지 안에 있음)</text>
+
+  <!-- 시뮬레이션 쪽 -->
+  <rect class="box" x="880" y="56" width="220" height="70" rx="6"/><text x="990" y="84" text-anchor="middle" font-weight="700">aris3_task_manager</text><text x="990" y="104" text-anchor="middle" class="small">C++ · 단계 상태 머신</text>
+  <rect class="box" x="880" y="186" width="220" height="60" rx="6"/><text x="990" y="212" text-anchor="middle" font-weight="700">MoveIt move_group</text><text x="990" y="231" text-anchor="middle" class="small">계획 · 충돌 검사</text>
+  <rect class="box" x="1160" y="56" width="210" height="60" rx="6"/><text x="1265" y="82" text-anchor="middle" font-weight="700">gz_truth_detector</text><text x="1265" y="101" text-anchor="middle" class="small">[임시] 정답 위치</text>
+  <rect class="box" x="1160" y="186" width="210" height="60" rx="6"/><text x="1265" y="212" text-anchor="middle" font-weight="700">gz_gripper_bridge</text><text x="1265" y="231" text-anchor="middle" class="small">그리퍼 · 파지 보조</text>
+  <rect class="box" x="1060" y="330" width="250" height="70" rx="6"/><text x="1185" y="358" text-anchor="middle" font-weight="700">Gazebo (ARIS3 월드)</text><text x="1185" y="378" text-anchor="middle" class="small">로봇 · 큐브 · 카메라 · ros2_control</text>
+
+  <!-- 실물 쪽 -->
+  <rect class="box-key" x="880" y="500" width="240" height="130" rx="8"/>
+  <text x="1000" y="528" text-anchor="middle" font-weight="700">aris3_real_bridge</text>
+  <text x="900" y="552" class="small">RobotLink: 이동 전 검사·도착 확인·정지</text>
+  <text x="900" y="572" class="small">PickSequence: 집기 순서</text>
+  <text x="900" y="592" class="small">PixelCalibration: 픽셀 → 로봇 좌표</text>
+  <text x="900" y="612" class="small">armed (조작 허용 이중 장치)</text>
+  <rect class="box" x="880" y="770" width="240" height="80" rx="6"/><text x="1000" y="798" text-anchor="middle" font-weight="700">dsr_bringup2</text><text x="1000" y="818" text-anchor="middle" class="small">두산 드라이버</text><text x="1000" y="836" text-anchor="middle" class="small">mode:=real / virtual(Docker)</text>
+  <rect class="box" x="1180" y="900" width="190" height="64" rx="6"/><text x="1275" y="926" text-anchor="middle" font-weight="700">실물 E0509</text><text x="1275" y="945" text-anchor="middle" class="small">컨트롤러 (TCP/IP)</text>
+  <rect class="box" x="1180" y="770" width="190" height="64" rx="6"/><text x="1275" y="796" text-anchor="middle" font-weight="700">dsr_joint_mirror</text><text x="1275" y="815" text-anchor="middle" class="small">가상 모드만</text>
+
+  <!-- ===== 화살표 ===== -->
+  <!-- 사람 -> 음성 -->
+  <path class="e-plain" d="M170 88 H246" marker-end="url(#aP)"/><text class="lbl" x="178" y="80" fill="currentColor">소리</text>
+  <!-- 음성 -> GUI : voice_command, state -->
+  <path class="e-topic" d="M450 80 H600 V176" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="462" y="72">/aris3/voice_command · /voice/state</text>
+  <!-- GUI -> 음성 : active, text -->
+  <path class="e-topic" d="M560 176 V112 H454" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="462" y="132">/aris3/voice/active · /voice/text</text>
+  <!-- 카메라 -> 색검출, 손짓, GUI -->
+  <path class="e-topic" d="M170 420 H210 V333 H246" marker-end="url(#aT)"/>
+  <path class="e-topic" d="M170 450 H210 V558 H246" marker-end="url(#aT)"/>
+  <path class="e-topic" d="M210 435 H536" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="236" y="428">/aris3/overhead_camera/image(/compressed)</text>
+  <!-- 색검출 -> GUI -->
+  <path class="e-topic" d="M450 333 H536" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="458" y="325">/aris3/vision/</text><text class="lbl c-topic" x="458" y="352">detections_px</text>
+  <!-- 색검출 -> 실물 브리지 -->
+  <path class="e-topic" d="M350 366 V480 H500 V660 H860 V600 H876" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="508" y="652">/aris3/vision/detections_px (집기 직전 위치 다시 읽기)</text>
+  <!-- 손짓 -> GUI -->
+  <path class="e-topic" d="M450 558 H520 V490 H536" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="356" y="618">/aris3/gesture · /aris3/gesture/event</text>
+  <!-- GUI -> Task Manager (action) -->
+  <path class="e-action" d="M790 200 H830 V91 H876" marker-end="url(#aA)"/>
+  <text class="lbl c-action" x="700" y="160">/aris3/execute_task</text>
+  <!-- TM -> GUI task_status -->
+  <path class="e-topic" d="M880 112 H812 V230 H794" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="806" y="146" transform="rotate(90 806 146)">/aris3/task_status</text>
+  <!-- TM -> MoveIt -->
+  <path class="e-action" d="M990 126 V182" marker-end="url(#aA)"/>
+  <text class="lbl c-action" x="996" y="160">/move_action</text>
+  <!-- GUI -> MoveIt (수동 조작) -->
+  <path class="e-action" d="M790 260 H876" marker-end="url(#aA)"/>
+  <text class="lbl c-action" x="794" y="282">/move_action (수동 조작)</text>
+  <!-- MoveIt -> Gazebo -->
+  <path class="e-action" d="M990 246 V365 H1056" marker-end="url(#aA)"/>
+  <text class="lbl c-action" x="896" y="300">arm_controller/</text><text class="lbl c-action" x="896" y="314">follow_joint_trajectory</text>
+  <!-- truth -> TM -->
+  <path class="e-topic" d="M1160 86 H1104" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1106" y="146">/aris3/detected_objects</text>
+  <path class="e-plain" d="M1130 140 L1130 90" />
+  <!-- Gazebo -> truth -->
+  <path class="e-topic" d="M1340 326 V120" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1346" y="300" transform="rotate(-90 1346 300)">/model/*/pose</text>
+  <!-- TM -> gripper bridge (service) -->
+  <path class="e-service" d="M1100 110 H1140 V200 H1156" marker-end="url(#aS)"/>
+  <text class="lbl c-service" x="1146" y="170">/aris3/gripper/command</text>
+  <!-- gripper bridge -> Gazebo -->
+  <path class="e-topic" d="M1265 246 V326" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1272" y="290">gripper_position_controller</text>
+
+  <!-- GUI -> 실물 브리지 : action + service, state 되돌아옴 -->
+  <path class="e-action" d="M700 510 V540 H876" marker-end="url(#aA)"/>
+  <text class="lbl c-action" x="706" y="534">/aris3/real/motion · /pick_place</text>
+  <path class="e-service" d="M660 510 V570 H876" marker-end="url(#aS)"/>
+  <text class="lbl c-service" x="666" y="564">/aris3/real/connect·stop·set_armed·calibration</text>
+  <path class="e-topic" d="M880 600 H620 V514" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="626" y="594">/aris3/real/state (10 Hz)</text>
+  <!-- 브리지 -> dsr_bringup2 -->
+  <path class="e-service" d="M960 630 V766" marker-end="url(#aS)"/>
+  <text class="lbl c-service" x="966" y="680">/e0509_real/motion/*</text><text class="lbl c-service" x="966" y="694">system/* · drl/*</text>
+  <path class="e-topic" d="M1060 766 V634" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1066" y="720">/e0509_real/joint_states</text>
+  <!-- dsr -> 실물 -->
+  <path class="e-plain" d="M1000 850 V932 H1176" marker-end="url(#aP)"/>
+  <text class="lbl" x="1010" y="924" fill="currentColor">TCP/IP (실물)</text>
+  <!-- dsr -> mirror (가상) -->
+  <path class="e-topic" d="M1120 800 H1176" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1124" y="792">joint_states</text>
+  <!-- mirror -> Gazebo -->
+  <path class="e-topic" d="M1300 770 V420 H1260 V404" marker-end="url(#aT)"/>
+  <text class="lbl c-topic" x="1306" y="680" transform="rotate(-90 1306 680)">dsr_position_controller (가상)</text>
+  <!-- 브리지 -> 그리퍼 브리지 (가상) -->
+  <path class="e-service" d="M1120 520 H1210 V250" marker-end="url(#aS)"/>
+  <text class="lbl c-service" x="1126" y="512">/aris3/gripper/command (가상)</text>
+</svg>
+</div>
+<p class="caption">굵은 붉은 선 = 액션, 금색 점선 = 서비스, 시안 선 = 토픽. 모든 노드의 로그는 <code>/rosout</code> 으로 GUI 로그 창에 모입니다 (그림에서는 생략).</p>
+</section>
+
+<section id="table">
+<h2>인터페이스 표</h2>
+<p>그림의 화살표를 빠짐없이 적었습니다. 이름을 복사해 <code>ros2 topic echo</code>, <code>ros2 service call</code>, <code>ros2 action send_goal</code> 로 직접 확인해 보세요.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>이름</th><th>종류</th><th>타입</th><th>보내는 쪽 → 받는 쪽</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td class="k mono">/aris3/voice_command</td><td class="t-topic">토픽</td><td class="mono">VoiceCommand</td><td>aris3_voice → GUI</td><td>인식 문장·해석·실행 가능 여부</td></tr>
+<tr><td class="k mono">/aris3/voice/state</td><td class="t-topic">토픽</td><td class="mono">String</td><td>aris3_voice → GUI</td><td>loading · ready · listening · recognizing</td></tr>
+<tr><td class="k mono">/aris3/voice/active</td><td class="t-topic">토픽</td><td class="mono">Bool</td><td>GUI → aris3_voice</td><td>음성 명령 모드 ON/OFF</td></tr>
+<tr><td class="k mono">/aris3/voice/text</td><td class="t-topic">토픽</td><td class="mono">String</td><td>GUI → aris3_voice</td><td>문장 입력창 (호출어 없어도 됨)</td></tr>
+<tr><td class="k mono">/aris3/overhead_camera/image/compressed</td><td class="t-topic">토픽</td><td class="mono">CompressedImage</td><td>카메라 → 색 검출·손짓·GUI</td><td>JPEG 위쪽 영상 (시뮬레이션은 원본 Image 도)</td></tr>
+<tr><td class="k mono">/aris3/vision/detections_px</td><td class="t-topic">토픽</td><td class="mono">DetectedObjectArray</td><td>색 검출 → GUI·실물 브리지</td><td>큐브 위치 (영상 픽셀)</td></tr>
+<tr><td class="k mono">/aris3/gesture</td><td class="t-topic">토픽</td><td class="mono">HandGesture</td><td>aris3_gesture → GUI</td><td>손끝 픽셀·손짓·멈춤 진행도</td></tr>
+<tr><td class="k mono">/aris3/gesture/event</td><td class="t-topic">토픽</td><td class="mono">GestureEvent</td><td>aris3_gesture → GUI</td><td>선택 / 집기 확정 / 놓기 확정</td></tr>
+<tr><td class="k mono">/aris3/execute_task</td><td class="t-action">액션</td><td class="mono">ExecuteTask</td><td>GUI → Task Manager</td><td>집어서 놓기 작업 (색·구역 또는 물체 이름·좌표)</td></tr>
+<tr><td class="k mono">/aris3/task_status</td><td class="t-topic">토픽</td><td class="mono">TaskStatus</td><td>Task Manager → GUI</td><td>대기·작업 중·오류와 단계</td></tr>
+<tr><td class="k mono">/aris3/detected_objects</td><td class="t-topic">토픽</td><td class="mono">DetectedObjectArray</td><td>(시뮬레이션) 정답 위치 → Task Manager</td><td>world 좌표 물체 — aris3_vision 생기면 대체</td></tr>
+<tr><td class="k mono">/move_action</td><td class="t-action">액션</td><td class="mono">MoveGroup</td><td>Task Manager·GUI → MoveIt</td><td>계획하고 실행 (수동 조작도)</td></tr>
+<tr><td class="k mono">/aris3/gripper/command</td><td class="t-service">서비스</td><td class="mono">GripperCommand</td><td>Task Manager·실물 브리지(가상) → gz_gripper_bridge</td><td>열기 / 닫기 / 상태, 잡았는지</td></tr>
+<tr><td class="k mono">/aris3/real/state</td><td class="t-topic">토픽</td><td class="mono">RealRobotState</td><td>실물 브리지 → GUI</td><td>접속·상태·조작 허용·관절·그리퍼·보정 (10 Hz)</td></tr>
+<tr><td class="k mono">/aris3/real/connect · disconnect · stop</td><td class="t-service">서비스</td><td class="mono">Trigger</td><td>GUI → 실물 브리지</td><td>접속 / 끊기 / 정지 (정지는 언제나)</td></tr>
+<tr><td class="k mono">/aris3/real/set_armed · set_hand_guide</td><td class="t-service">서비스</td><td class="mono">SetBool</td><td>GUI → 실물 브리지</td><td>조작 허용 / 손으로 움직이기</td></tr>
+<tr><td class="k mono">/aris3/real/calibration</td><td class="t-service">서비스</td><td class="mono">RealCalibration</td><td>GUI → 실물 브리지</td><td>보정 ① 기억 ② 기록 · 저장 · 불러오기</td></tr>
+<tr><td class="k mono">/aris3/real/motion</td><td class="t-action">액션</td><td class="mono">RealMotion</td><td>GUI → 실물 브리지</td><td>조그·홈·복구 후 홈·그리퍼 (취소 = 정지)</td></tr>
+<tr><td class="k mono">/aris3/real/pick_place</td><td class="t-action">액션</td><td class="mono">RealPickPlace</td><td>GUI → 실물 브리지</td><td>큐브 위로·집기·놓기·옮기기 (취소 = 정지)</td></tr>
+<tr><td class="k mono">/e0509_real/motion/* · system/* · drl/*</td><td class="t-service">서비스</td><td class="mono">dsr_msgs2</td><td>RobotLink → dsr_bringup2</td><td>두산 컨트롤러 명령 (실물·가상 같음)</td></tr>
+<tr><td class="k mono">/e0509_real/joint_states</td><td class="t-topic">토픽</td><td class="mono">JointState</td><td>dsr_bringup2 → RobotLink·dsr_joint_mirror</td><td>관절 각도 (가상 모드에서는 Gazebo 팔이 따라감)</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="pick">
+<h2>「집어서 옮기기」 한 번의 순서 (실물 경로)</h2>
+<p>사람이 「아리스, 이거 저기로 옮겨줘」 라고 말한 뒤 로봇이 움직이기까지 누가 무엇을 하는지입니다. 세로선이 각 모듈, 화살표가 메시지입니다.</p>
+<div class="figure">
+<svg viewBox="0 0 1000 620" role="img" aria-label="집어서 옮기기 순서도">
+  <defs>
+    <marker id="sA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="c-action"/></marker>
+    <marker id="sT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="c-topic"/></marker>
+    <marker id="sS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="c-service"/></marker>
+  </defs>
+  <g text-anchor="middle" font-weight="700" font-size="14">
+    <text x="90" y="30">사람</text><text x="270" y="30">aris3_voice</text><text x="470" y="30">GUI</text>
+    <text x="690" y="30">aris3_real_bridge</text><text x="900" y="30">두산 컨트롤러</text>
+  </g>
+  <g class="lane"><line x1="90" y1="42" x2="90" y2="600"/><line x1="270" y1="42" x2="270" y2="600"/><line x1="470" y1="42" x2="470" y2="600"/><line x1="690" y1="42" x2="690" y2="600"/><line x1="900" y1="42" x2="900" y2="600"/></g>
+  <path class="e-plain" d="M90 70 H266" marker-end="url(#sT)"/><text class="lbl" x="100" y="62" fill="currentColor">「아리스 이거 저기로 옮겨줘」</text>
+  <text class="small" x="280" y="96">호출어 확인 → 「이거 저기로 옮겨줘」 해석</text>
+  <path class="e-topic" d="M270 114 H466" marker-end="url(#sT)"/><text class="lbl c-topic" x="280" y="108">VoiceCommand (pick, 이거·저기)</text>
+  <text class="small" x="480" y="140">화면에서 고른 큐브·자리 있음? 조작 허용? → 확인창 「예」</text>
+  <path class="e-action" d="M470 166 H686" marker-end="url(#sA)"/><text class="lbl c-action" x="480" y="160">RealPickPlace 목표 (큐브 픽셀, 놓을 픽셀)</text>
+  <text class="small" x="700" y="190">armed? 보정 있음? → 검출로 픽셀 다시 읽기 → 로봇 좌표</text>
+  <path class="e-service" d="M690 214 H896" marker-end="url(#sS)"/><text class="lbl c-service" x="700" y="208">move_line (큐브 위 접근 높이)</text>
+  <path class="e-topic" d="M900 238 H694" marker-end="url(#sT)"/><text class="lbl c-topic" x="704" y="232">joint_states · 상태 (도착 확인)</text>
+  <path class="e-action" d="M690 262 H474" marker-end="url(#sA)" stroke-dasharray="3 4"/><text class="lbl c-action" x="480" y="256">진행 (feedback): 「접근」</text>
+  <path class="e-service" d="M690 300 H896" marker-end="url(#sS)"/><text class="lbl c-service" x="700" y="294">그리퍼 열기 → 하강 → 닫기</text>
+  <text class="small" x="700" y="324">닫은 뒤 손가락 위치로 「잡음/빈손」 판단 — 빈손이면 여기서 멈춤</text>
+  <path class="e-service" d="M690 350 H896" marker-end="url(#sS)"/><text class="lbl c-service" x="700" y="344">들기 → 놓을 자리 위 → 하강 → 열기 → 위로</text>
+  <path class="e-topic" d="M690 380 H474" marker-end="url(#sT)"/><text class="lbl c-topic" x="480" y="374">RealRobotState 10 Hz (단계·잡음 여부)</text>
+  <path class="e-action" d="M690 420 H474" marker-end="url(#sA)"/><text class="lbl c-action" x="480" y="414">결과: 성공, 잡음</text>
+  <rect x="300" y="470" width="640" height="110" rx="8" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="316" y="494" font-weight="700" fill="var(--red)">정지가 끼어들면 (Space · 정지 버튼)</text>
+  <path class="e-service" d="M470 520 H686" marker-end="url(#sS)"/><text class="lbl c-service" x="480" y="514">/aris3/real/stop (별도 콜백 그룹 · 언제나)</text>
+  <path class="e-service" d="M690 548 H896" marker-end="url(#sS)"/><text class="lbl c-service" x="700" y="542">move_stop (빠른 정지)</text>
+  <text class="small" x="316" y="570">진행 중 단계는 실패로 끝나고 남은 단계는 보내지 않음</text>
+</svg>
+</div>
+</section>
+
+<section id="threads">
+<h2>GUI 스레드 구조 — 왜 화면이 멈추지 않는가</h2>
+<p>ROS 콜백과 화면 그리기는 다른 스레드에서 돕니다. ROS 쪽은 받은 값을 잠금(mutex) 아래 보관만 하고, 화면은 100 ms 마다 그 복사본(snapshot)을 읽습니다.
+그래서 카메라 영상이 빨리 들어와도 버튼이 굳지 않고, 화면이 바빠도 ROS 메시지를 놓치지 않습니다.</p>
+<div class="figure narrow">
+<svg viewBox="0 0 900 300" role="img" aria-label="GUI 스레드와 스냅샷 구조">
+  <defs><marker id="tA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="c-muted"/></marker></defs>
+  <rect class="box" x="20" y="40" width="250" height="220" rx="8"/><text x="145" y="68" text-anchor="middle" font-weight="700">ROS 스레드 (executor)</text>
+  <text x="40" y="100" class="small">· 토픽 콜백: 영상 풀기(JPEG)</text><text x="40" y="122" class="small">· 관절·검출·음성·손짓 받기</text>
+  <text x="40" y="144" class="small">· 액션 결과·진행 받기</text><text x="40" y="180" class="small">하는 일: 값만 저장 (빨리 끝냄)</text>
+  <rect class="box-key" x="330" y="90" width="240" height="120" rx="8"/><text x="450" y="120" text-anchor="middle" font-weight="700">공유 상태 + 잠금</text>
+  <text x="350" y="150" class="small">GuiNode 안의 값들</text><text x="350" y="172" class="small">snapshot() = 잠금 걸고 통째로 복사</text>
+  <rect class="box" x="630" y="40" width="250" height="220" rx="8"/><text x="755" y="68" text-anchor="middle" font-weight="700">Qt 화면 스레드</text>
+  <text x="650" y="100" class="small">· 100 ms 타이머: 상태 패널·로그</text><text x="650" y="122" class="small">· 33 ms 타이머: 카메라</text>
+  <text x="650" y="144" class="small">· 버튼 → 노드 함수 호출</text><text x="650" y="180" class="small">하는 일: 복사본으로 그리기</text>
+  <path class="e-plain" d="M270 130 H326" marker-end="url(#tA)"/><text class="lbl" x="276" y="122" fill="currentColor">쓰기</text>
+  <path class="e-plain" d="M570 150 H626" marker-end="url(#tA)"/><text class="lbl" x="574" y="142" fill="currentColor">읽기(복사)</text>
+  <text x="450" y="250" text-anchor="middle" class="small">규칙: 잠금 안에서 log() 처럼 또 잠그는 함수를 부르지 않는다 (교착 — 사례 3)</text>
+</svg>
+</div>
+</section>
+
+<section id="safety">
+<h2>안전장치 층</h2>
+<p>하나가 뚫려도 다음 층이 막도록 겹쳐 두었습니다. 위에서부터 사람에 가까운 층입니다. 화면의 정지는 인증된 비상정지 장치를 대신하지 않습니다.</p>
+<div class="figure narrow">
+<svg viewBox="0 0 900 360" role="img" aria-label="안전장치 층">
+  <g font-size="14">
+    <rect x="40" y="20" width="820" height="52" rx="8" class="box"/><text x="60" y="52" font-weight="700">1. 사람</text><text x="250" y="52" class="small">비상정지 버튼 (장비) · 로봇 주변을 비웠는지 확인</text>
+    <rect x="80" y="82" width="740" height="52" rx="8" class="box"/><text x="100" y="114" font-weight="700">2. GUI 확인창</text><text x="290" y="114" class="small">움직이기 전 좌표·높이를 보여 주고 「예」 를 받음 (음성·손짓도 같음)</text>
+    <rect x="120" y="144" width="660" height="52" rx="8" class="box"/><text x="140" y="176" font-weight="700">3. 조작 허용 (GUI)</text><text x="330" y="176" class="small">체크해야 동작 · 2분 명령 없으면 잠김</text>
+    <rect x="160" y="206" width="580" height="52" rx="8" class="box-key"/><text x="180" y="238" font-weight="700">4. 조작 허용 (브리지)</text><text x="380" y="238" class="small">GUI 버그가 있어도 브리지가 다시 막음</text>
+    <rect x="200" y="268" width="500" height="52" rx="8" class="box"/><text x="220" y="300" font-weight="700">5. RobotLink 검사</text><text x="390" y="300" class="small">관절 한계·최저 높이·도달 범위·400 mm·도착 확인</text>
+  </g>
+  <text x="450" y="348" text-anchor="middle" class="small">정지는 모든 층을 건너뛰고 언제나 보낸다 (Space · Esc · 정지 버튼 → /aris3/real/stop)</text>
+</svg>
+</div>
+</section>
+
+<section id="bugs">
+<h2>버그 사례집</h2>
+<p>이번 개발에서 실제로 겪은 문제입니다. 「확인 방법」 은 지금도 직접 해 볼 수 있습니다. 공통 교훈은 하나입니다: <b>추측하지 말고 기록(로그)과 측정으로 원인을 확정한다.</b></p>
+
+<article class="case">
+<h3>사례 1. 시뮬레이션 팔이 꼼짝도 하지 않음</h3>
+<dl>
+<dt>증상</dt><dd>작업 첫 이동에서 <code>CONTROL_FAILED</code>, 「State tolerances failed for joint 2」. 관절 값이 0 에서 전혀 안 바뀜.</dd>
+<dt>처음 의심</dt><dd>제어기가 켜지기 전에 작업을 보냈다 → 고쳤지만 그대로 실패 (의심이 틀림).</dd>
+<dt>확인 방법</dt><dd><code>ros2 action send_goal .../follow_joint_trajectory</code> 로 직접 보내기 → 다른 제어기로 바꿔도 안 움직임 → 큐브 detach 를 손으로 보내자 바로 성공.</dd>
+<dt>진짜 원인</dt><dd>파지 보조(DetachableJoint)는 시작할 때 큐브를 손에 붙여 둔다. 떼는 명령을 시작 직후 3초만 보냈는데 받는 쪽(Gazebo 브리지)이 아직 없어서 모두 사라짐 → 팔이 탁자 위 큐브에 묶임.</dd>
+<dt>배울 점</dt><dd>ROS 토픽은 받는 쪽이 없으면 그냥 사라진다. 시작 순서에 기대지 말고 <code>get_subscription_count()</code> 로 받는 쪽을 확인하거나 상태로 결과를 확인한다.</dd>
+</dl></article>
+
+<article class="case">
+<h3>사례 2. GUI 를 껐는데 로봇 접속이 남음</h3>
+<dl>
+<dt>증상</dt><dd>GUI 종료 후에도 <code>dsr_bringup2</code> 가 살아 있음 (실물이면 서보가 켜진 채).</dd>
+<dt>확인 방법</dt><dd>브리지 기록의 <code>KeyboardInterrupt</code> 위치 확인 → 접속 끊기 도중이었음.</dd>
+<dt>진짜 원인</dt><dd>GUI 가 프로세스 그룹 전체에 SIGINT 를 보내면 <code>ros2 launch</code> 도 한 번 더 넘겨줘서 노드가 SIGINT 를 두 번 받음. 두 번째가 정리 코드를 끊음.</dd>
+<dt>수정</dt><dd>정리를 시작하면 SIGINT 를 무시 (<code>signal.signal(SIGINT, SIG_IGN)</code>), 로봇 접속 끊기를 가장 먼저.</dd>
+<dt>배울 점</dt><dd>종료 경로도 기능이다. 「정상 동작」 만 시험하지 말고 끌 때 무엇이 남는지 <code>ps</code> 로 확인한다.</dd>
+</dl></article>
+
+<article class="case">
+<h3>사례 3. 잠금 안에서 로그 — 화면이 굳을 뻔함</h3>
+<dl>
+<dt>증상</dt><dd>(코드를 쓰다가 발견) 관절 조그 함수가 잠금을 잡은 채 <code>log()</code> 를 부름. <code>log()</code> 도 같은 잠금을 잡음.</dd>
+<dt>원인</dt><dd>같은 스레드가 이미 가진 잠금을 다시 기다림 → 영원히 기다림 (교착). <code>std::mutex</code> 는 재진입이 안 된다.</dd>
+<dt>수정</dt><dd>잠금 안에서는 값만 읽고, 잠금을 푼 뒤 로그.</dd>
+<dt>배울 점</dt><dd>잠금 범위는 짧게, 잠금 안에서 남의 함수를 부르지 않는다.</dd>
+</dl></article>
+
+<article class="case">
+<h3>사례 4. <code>pkill -f</code> 가 자기 자신을 죽임 / 느슨한 검색</h3>
+<dl>
+<dt>증상</dt><dd>정리 스크립트가 이상한 종료 코드로 끝남. GUI 가 「브리지가 이미 실행 중」 이라며 띄우지 않음.</dd>
+<dt>원인</dt><dd><code>pgrep -f 'real_bridge'</code> 는 그 글자가 들어간 <b>모든 명령줄</b>(검색하는 셸 자신 포함)에 걸린다.</dd>
+<dt>수정</dt><dd>실제 노드 프로세스 형태만 찾는 정규식: <code>^\S*python[0-9.]* \S*/lib/aris3_real_bridge/real_bridge( |$)</code></dd>
+<dt>배울 점</dt><dd>프로세스는 PID 로 관리하고(<code>setsid</code> 로 띄워 그룹째 끄기), 이름 검색은 최대한 좁힌다.</dd>
+</dl></article>
+
+<article class="case">
+<h3>사례 5. 집기 동작 중 브리지가 5초씩 응답하지 않음</h3>
+<dl>
+<dt>증상</dt><dd>집기 순서 중 정지 명령이 4.6초 늦게 도착, 그리퍼 서비스 응답이 사라짐.</dd>
+<dt>확인 방법</dt><dd>GUI 없이 재현: 0.2초마다 가벼운 서비스를 불러 응답 시간을 잼 → 5초 이상 멈춤 확인. <code>faulthandler</code> 로 멈춘 순간 모든 스레드의 스택을 찍음 (<code>kill -USR1 &lt;pid&gt;</code>).</dd>
+<dt>단서</dt><dd>일하는 스레드는 대부분 쉬고 있고, 주 스레드는 rclpy 실행기가 기다릴 대상 목록(<code>node.clients</code>, <code>node.guards</code>)을 만드는 중. 브리지가 아무 일 안 할 때도 CPU 50 %, 집기 중 90 %. 관절 상태가 100 Hz 로 두 개 들어옴.</dd>
+<dt>진짜 원인</dt><dd>rclpy <code>MultiThreadedExecutor</code> 는 메시지가 하나 올 때마다 노드의 모든 구독·서비스·액션·타이머로 기다릴 목록을 다시 만든다. 100 Hz 관절 상태(그리퍼 각도용)가 이걸 초당 100 번 시켰고, 파이썬은 한 번에 한 스레드만 돌 수 있어(GIL) ARIS·Gazebo 까지 바쁠 때 다른 스레드(정지 서비스, 그리퍼 응답 처리)가 수 초씩 밀렸다.</dd>
+<dt>수정</dt><dd>빠른 토픽은 전용 작은 노드 + <code>SingleThreadedExecutor</code> 로 따로 받는다. 메인 실행기 스레드 8 → 4. 측정: 최대 응답 5 초 이상 → 0.3 초.</dd>
+<dt>배울 점</dt><dd>멈춤 문제는 「멈춘 순간」 의 증거(스택·시간 측정)가 있어야 풀린다. Python ROS 의 실행기·콜백 그룹·GIL 은 C++ 과 다르게 동작한다.</dd>
+</dl></article>
+</section>
+
+<section id="tasks">
+<h2>직접 해 볼 과제</h2>
+<p>각 과제는 「고칠 곳」 과 「확인 명령」 이 있습니다. 테스트가 통과하면 리뷰를 요청하세요. 막히면 어디까지 했는지 알려 주면 그 지점부터 같이 봅니다.</p>
+<div class="tasks">
+<div class="task"><span class="level lv1">쉬움</span><b>호출어 오인식 표현 추가</b>
+<p>실제로 마이크에 「아리스」 라고 말했을 때 Whisper 가 적은 다른 표현을 받게 합니다.<br>
+고칠 곳: <code>aris3_voice/aris3_voice/listening.py</code> 의 <code>WAKE_WORDS</code>, 시험: <code>test/test_listening.py</code> 에 경우 추가<br>
+확인: <code>python3 -m pytest -q aris3_voice/test</code></p></div>
+<div class="task"><span class="level lv2">중간</span><b>음성 「아리스 멈춰」 = 정지</b>
+<p>파서에 <code>stop</code> 동작을 추가하고 GUI 가 받으면 정지를 보냅니다. 정지는 확인창 없이 바로여야 합니다 (왜 그런지 생각해 보기).<br>
+고칠 곳: <code>command_parser.py</code>, <code>VoiceCommand.msg</code> 설명, PyQt <code>panels/voice.py</code>, ARIS <code>main_window.cpp</code><br>
+확인: 파서 테스트 + <code>ros2 topic pub --once -w 1 /aris3/voice/text std_msgs/msg/String "{data: '아리스 멈춰'}"</code></p></div>
+<div class="task"><span class="level lv2">중간</span><b>ARIS 에 속도 단계 버튼 (느림·보통·빠름)</b>
+<p>속도 슬라이더 옆에 버튼 3개를 두어 30·60·100 % 로 맞춥니다. Qt 시그널·슬롯 연습.<br>
+고칠 곳: <code>aris3_gui_cpp/src/main_window.cpp</code> 의 <code>buildJogPanel()</code><br>
+확인: <code>colcon build --packages-select aris3_gui_cpp</code> 후 화면에서 눌러 보기</p></div>
+<div class="task"><span class="level lv3">어려움</span><b>Task Manager 의 집기·놓기 분리</b>
+<p>지금은 집기 명령이 놓기까지 한 번에 합니다. 「집기만」·「놓기만」 작업을 추가합니다. 액션 정의 변경 → 모든 사용처 갱신 (AGENTS.md 규칙).<br>
+고칠 곳: <code>ExecuteTask.action</code>, <code>task_manager_node.cpp</code>, 두 GUI<br>
+확인: <code>colcon test --packages-select aris3_task_manager</code> + 시뮬레이션에서 <code>send_task</code></p></div>
+</div>
+</section>
+
+<section id="read">
+<h2>코드 읽기 순서</h2>
+<h3>실물 경로 (금요일 전에 꼭)</h3>
+<ol>
+<li><code>aris3_interfaces/msg/RealRobotState.msg</code>, <code>action/RealPickPlace.action</code> — 무엇을 주고받는지부터</li>
+<li><code>aris3_real_bridge/aris3_real_bridge/bridge_node.py</code> — <code>why_blocked</code>, <code>_exec_pick</code>, <code>_srv_stop</code>, <code>main</code> 의 종료 순서</li>
+<li><code>aris3_real_bridge/aris3_real_bridge/real_pick.py</code> — 보정(호모그래피)과 집기 단계</li>
+<li><code>~/ros2_ws/src/e0509_manual/e0509_manual/robot_link.py</code> — <code>move_tcp_to</code>, <code>_check_arrival</code>, <code>stop</code></li>
+<li><code>aris3_real_bridge/test/test_bridge_node.py</code> — 가짜 로봇으로 안전 규칙을 어떻게 시험하는지</li>
+</ol>
+<h3>GUI</h3>
+<ol>
+<li><code>aris3_gui_cpp/include/aris3_gui_cpp/backend.hpp</code> — 시뮬레이션·실물을 같은 화면으로 쓰는 방법</li>
+<li><code>aris3_gui_cpp/src/ros_io.cpp</code> — 구독·잠금·snapshot</li>
+<li><code>aris3_gui_cpp/src/main_window_real.cpp</code> — 확인창·조작 허용·손짓 이벤트</li>
+<li>같은 기능의 PyQt 버전 <code>aris3_gui/aris3_gui/panels/real_pick_panel.py</code> 와 비교해 보기</li>
+</ol>
+<h3>먼저 보면 좋은 기존 문서</h3>
+<p><code>docs/ARIS3_TaskManager_학습가이드.md</code> (액션·상태 머신·executor·TF), <code>docs/ARIS3_실행_테스트_가이드.md</code> (실행 방법, 5-2 실물 비슷한 시뮬레이션)</p>
+</section>
+</div>
