@@ -30,7 +30,9 @@ def _include(pkg, name, args=None, condition=None):
 def generate_launch_description():
     assist = LaunchConfiguration("grasp_assist")
     wait_arm = Node(package="aris3_bringup", executable="wait_for_action.py", output="screen",
-                    arguments=["/e0509_gripper/arm_controller/follow_joint_trajectory"])
+                    # 액션이 보이는 것만으로는 부족: 제어기가 active 가 될 때까지 (너무 이른 작업이 CONTROL_FAILED)
+                    arguments=["/e0509_gripper/arm_controller/follow_joint_trajectory",
+                               "--active-controller", "arm_controller"])
     wait_move = Node(package="aris3_bringup", executable="wait_for_action.py", output="screen",
                      arguments=["/move_action"])
 

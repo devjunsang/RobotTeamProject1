@@ -90,6 +90,7 @@ class GzGripperBridge(Node):
             self.create_subscription(DetectedObjectArray, '/aris3/detected_objects', self._on_objects, 10,
                                      callback_group=cb)
             self.release_count = 0
+            self.release_sent = {}          # 물체별: 받는 쪽이 있을 때 보낸 횟수
             self.release_timer = self.create_timer(0.5, self._release_at_startup, callback_group=cb)
             self.get_logger().warn(f'파지 보조 켜짐 (DetachableJoint): {self.assist}')
 
@@ -109,14 +110,32 @@ class GzGripperBridge(Node):
         self.objects = {o.id: o.pose.pose.position for o in msg.objects if o.id}
 
     def _release_at_startup(self):
-        # DetachableJoint 는 상태가 바뀔 때만 state 를 보내므로, 이미 분리된 물체는 확인 메시지가 오지 않는다.
-        # 그래서 확인을 기다리지 않고 정해진 횟수(3 s)만 detach 를 보낸다.
+        """시작할 때 모든 물체를 손에서 분리한다 (DetachableJoint 는 시작하면 물체를 손에 붙여 둔다).
+
+        2026-11-10 고침: 예전에는 노드가 뜬 뒤 3 초 동안만 보냈는데, Gazebo 쪽 브리지(ros_gz_bridge)가 아직
+        구독하지 않으면 메시지가 모두 사라져 물체가 손에 붙은 채 남았다 -> 팔이 탁자 위 큐브에 묶여 움직이지 못하고
+        첫 이동이 CONTROL_FAILED (path tolerance) 로 실패했다 (ARIS 시험에서 발견).
+        이제는 물체마다 (1) 받는 쪽이 생긴 뒤에만 보내고 (2) 'detached' 상태가 오면 그 물체는 멈추며
+        (3) 받는 쪽이 있는 상태로 6 번(3 초) 보냈으면 끝낸다 (이미 분리된 물체는 상태 메시지가 오지 않으므로).
+        60 초가 지나도 받는 쪽이 없으면 경고를 남기고 멈춘다.
+        """
         self.release_count += 1
+        pending = []
         for n in self.assist:
-            self.detach_pub[n].publish(Empty())
-        if self.release_count >= 6:
+            if self.joint_state.get(n) == 'detached' or self.release_sent.get(n, 0) >= 6:
+                continue
+            pub = self.detach_pub[n]
+            if pub.get_subscription_count() > 0:      # Gazebo 쪽 브리지가 듣고 있을 때만 센다
+                pub.publish(Empty())
+                self.release_sent[n] = self.release_sent.get(n, 0) + 1
+            pending.append(n)
+        if not pending:
             self.release_timer.cancel()
             self.get_logger().info('파지 보조: 시작 시 물체 분리 명령 완료')
+        elif self.release_count >= 120:                # 0.5 s x 120 = 60 s
+            self.release_timer.cancel()
+            self.get_logger().warn(f'파지 보조: 시작 시 분리를 확인하지 못함 {pending} - 물체가 손에 붙어 있으면 '
+                                   '팔이 움직이지 못한다 (attach/detach 브리지 확인)')
 
     def _tcp_world(self):
         t = self.tf.lookup_transform(self.world, self.flange, Time())
