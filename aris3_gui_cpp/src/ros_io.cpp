@@ -93,6 +93,19 @@ GuiNode::GuiNode(const std::string & robot_ns, const std::string & camera_topic)
     [this](std_msgs::msg::String::SharedPtr m) {
       std::lock_guard<std::mutex> lk(mtx_); s_.gesture_state = m->data; gesture_rate_.tick();
     }, o));
+  // 손짓 (실물 위쪽 카메라, MediaPipe): 매 영상 손끝·손짓, 선택·확정 이벤트
+  subs_.push_back(create_subscription<msg::HandGesture>("/aris3/gesture", 10,
+    [this](msg::HandGesture::SharedPtr m) {
+      std::lock_guard<std::mutex> lk(mtx_);
+      s_.gesture = *m;
+      gesture_time_ = std::chrono::steady_clock::now();
+    }, o));
+  subs_.push_back(create_subscription<msg::GestureEvent>("/aris3/gesture/event", 10,
+    [this](msg::GestureEvent::SharedPtr m) {
+      std::lock_guard<std::mutex> lk(mtx_);
+      gesture_events_.push_back(*m);
+      if (gesture_events_.size() > 20) {gesture_events_.erase(gesture_events_.begin());}
+    }, o));
   subs_.push_back(create_subscription<rcl_interfaces::msg::Log>("/rosout", 100,
     [this](rcl_interfaces::msg::Log::SharedPtr m) {
       if (m->name == get_name()) {return;}       // 자기 로그는 이미 화면에 넣었음
@@ -168,7 +181,18 @@ void GuiNode::log(const std::string & level, const std::string & text)
 Snapshot GuiNode::snapshot()
 {
   std::lock_guard<std::mutex> lk(mtx_);
-  return s_;
+  Snapshot out = s_;
+  // 손짓은 0.5 초 안에 받은 것만 (손 인식 노드가 멈추면 포인터를 지운다)
+  if (std::chrono::steady_clock::now() - gesture_time_ > std::chrono::milliseconds(500)) {out.gesture.reset();}
+  return out;
+}
+
+std::vector<aris3_interfaces::msg::GestureEvent> GuiNode::popGestureEvents()
+{
+  std::lock_guard<std::mutex> lk(mtx_);
+  std::vector<aris3_interfaces::msg::GestureEvent> out;
+  out.swap(gesture_events_);
+  return out;
 }
 
 StatusFlags GuiNode::statusFlags()

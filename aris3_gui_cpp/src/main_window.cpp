@@ -43,9 +43,10 @@ W * nofocus(W * w)
 }
 }  // namespace
 
-MainWindow::MainWindow(std::shared_ptr<GuiNode> node, SimBackend * backend, QWidget * parent)
+MainWindow::MainWindow(std::shared_ptr<GuiNode> node, Backend * backend, QWidget * parent)
 : QMainWindow(parent), node_(std::move(node)), backend_(backend)
 {
+  real_ = dynamic_cast<RealBackend *>(backend_);      // 실물 모드면 실물 전용 화면(집기·보정·손짓)을 더한다
   setWindowTitle(QStringLiteral("ARIS — ARIS3 Control Station (C++) — %1").arg(backend_->title()));
   setWindowIcon(QIcon(":/aris/aris_mark_256.png"));
   auto * central = new QWidget;
@@ -73,6 +74,13 @@ MainWindow::MainWindow(std::shared_ptr<GuiNode> node, SimBackend * backend, QWid
   bottom->setSpacing(10);
   bottom->addWidget(buildLogPanel(), 3);
   bottom->addWidget(buildVoicePanel(), 2);
+  if (real_) {
+    // 실물 음성은 「실물 집기」 순서로 이어지고 매번 확인창 -> 구역·자동 실행은 쓰지 않음
+    cmb_voice_zone_->setVisible(false);
+    chk_voice_auto_->setVisible(false);
+    bottom->addWidget(buildRealPickPanel(), 3);
+    camera_->onPixelClick = [this](double u, double v) {selectPixel(u, v, 40, "클릭");};
+  }
   bottom->addWidget(buildJogPanel(), 2);
   right->addLayout(bottom, 2);
   body->addLayout(right, 1);
@@ -116,7 +124,8 @@ QWidget * MainWindow::buildHeader()
   left->addWidget(title_);
   left->addWidget(sub);
   row->addLayout(left);
-  auto * chip = new QLabel(QStringLiteral("SIMULATION"));
+  auto * chip = new QLabel(!backend_->isReal() ? QStringLiteral("SIMULATION") :
+    backend_->isVirtual() ? QStringLiteral("REAL · 가상 컨트롤러") : QStringLiteral("REAL ROBOT"));
   chip->setObjectName("modeChip");
   row->addWidget(chip);
   row->addStretch(1);
@@ -192,7 +201,9 @@ QWidget * MainWindow::buildLeftColumn()
   col->addWidget(sys);
 
   auto * rob = new Panel(QStringLiteral("ROBOT STATE  로봇 상태"));
-  rob->body()->addWidget(new QLabel(QStringLiteral("<b>MoveIt 2 (시뮬레이션)</b>")));
+  rob->body()->addWidget(new QLabel(!backend_->isReal() ? QStringLiteral("<b>MoveIt 2 (시뮬레이션)</b>") :
+    backend_->isVirtual() ? QStringLiteral("<b>두산 가상 컨트롤러 (실물 경로 시뮬레이션)</b>") :
+    QStringLiteral("<b>두산 (실물)</b>")));
   lbl_task_state_ = new QLabel(QStringLiteral("작업 상태: —"));
   rob->body()->addWidget(lbl_task_state_);
   lbl_joints_ = new QLabel(QStringLiteral("—"));
@@ -214,15 +225,16 @@ QWidget * MainWindow::buildLeftColumn()
   auto * gr = new QHBoxLayout;
   btn_gopen_ = nofocus(new QPushButton(QStringLiteral("열기")));
   btn_gclose_ = nofocus(new QPushButton(QStringLiteral("닫기 (잡기)")));
-  connect(btn_gopen_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {node_->gripper(0);}});
-  connect(btn_gclose_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {node_->gripper(1);}});
+  connect(btn_gopen_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {backend_->gripper(false);}});
+  connect(btn_gclose_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {backend_->gripper(true);}});
   gr->addWidget(btn_gopen_);
   gr->addWidget(btn_gclose_);
   grip->body()->addLayout(gr);
   col->addWidget(grip);
 
   auto * cam = new Panel(QStringLiteral("CAMERA  카메라 정보"));
-  auto * cl = new QLabel(QStringLiteral("시뮬레이션: 탁자 위 2.0 m 고정 카메라 (보정 없음)"));
+  auto * cl = new QLabel(!backend_->isReal() ? QStringLiteral("시뮬레이션: 탁자 위 2.0 m 고정 카메라 (보정 없음)") :
+    QStringLiteral("실물 카메라: 픽셀 -> 로봇 좌표 보정 사용 (「실물 집기」 패널, 브리지가 계산)"));
   cl->setWordWrap(true);
   cl->setStyleSheet("color:#9aa7b4");
   cam->body()->addWidget(cl);
@@ -413,9 +425,19 @@ QWidget * MainWindow::buildJogPanel()
   chk_arm_->setStyleSheet("color:#f5c542; font-weight:600");
   connect(chk_arm_, &QCheckBox::toggled, this, [this](bool on) {
       last_cmd_ = std::chrono::steady_clock::now();
+      arm_sent_at_ = last_cmd_;
       node_->log("INFO", on ? "조작 허용 켬" : "조작 잠금");
+      backend_->setArmed(on);                        // 실물: 브리지 쪽 조작 허용도 같게 (이중 장치)
     });
   p->body()->addWidget(chk_arm_);
+  if (real_) {
+    // 실물: 손으로 움직이기 (콕핏 직접 교시 버튼을 누른 채 팔을 끌기 - 보정 점 찍기를 빠르게)
+    chk_hand_ = nofocus(new QCheckBox(QStringLiteral("손으로 움직이기 (수동 모드)")));
+    chk_hand_->setToolTip(QStringLiteral("켜면 로봇을 수동 모드로 바꿉니다. 팔 끝 콕핏의 직접 교시 버튼을 누른 채 팔을 끌어 "
+                                         "움직일 수 있습니다.\n켜져 있는 동안 이동·그리퍼·집기 명령은 막힙니다."));
+    connect(chk_hand_, &QCheckBox::clicked, this, &MainWindow::toggleHandGuide);
+    p->body()->addWidget(chk_hand_);
+  }
 
   auto * tabs = new QTabWidget;
   tabs->setFocusPolicy(Qt::NoFocus);
@@ -435,7 +457,7 @@ QWidget * MainWindow::buildJogPanel()
   {
     g->addWidget(jogBtn(QString::fromUtf8(t.text), [this, t]() {
         if (armOk("TCP 이동")) {
-          node_->jogTcp(t.axis, t.sign * cmb_step_->currentData().toDouble(), sld_speed_->value() / 100.0);
+          backend_->jogTcp(t.axis, t.sign * cmb_step_->currentData().toDouble(), sld_speed_->value());
         }
       }), t.r, t.c);
   }
@@ -450,7 +472,7 @@ QWidget * MainWindow::buildJogPanel()
       const int sign = k == 0 ? -1 : 1;
       auto * b = jogBtn(sign < 0 ? QStringLiteral("−") : QStringLiteral("+"), [this, i, sign]() {
           if (armOk("관절 이동")) {
-            node_->jogJoint(i, sign * cmb_step_->currentData().toDouble(), sld_speed_->value() / 100.0);
+            backend_->jogJoint(i, sign * cmb_step_->currentData().toDouble(), sld_speed_->value());
           }
         });
       b->setFixedWidth(40);
@@ -476,6 +498,18 @@ QWidget * MainWindow::buildJogPanel()
   row->addWidget(sld_speed_, 1);
   row->addWidget(lbl_speed_);
   p->body()->addLayout(row);
+  if (real_) {
+    // 실물: 한계 동작·충돌 감지로 멈췄을 때 복구 후 홈, 지금 로봇 상태
+    auto * rrow = new QHBoxLayout;
+    btn_recover_ = nofocus(new QPushButton(QStringLiteral("⟲ 복구 후 홈")));
+    btn_recover_->setToolTip(QStringLiteral("안전 정지 해제(또는 서보 켜기) -> 자동 모드 -> 홈 자세 [0, 0, 90, 0, 90, 0]°.\n"
+                                            "비상정지·복구 모드는 로봇 쪽에서 직접 풀어야 합니다."));
+    connect(btn_recover_, &QPushButton::clicked, this, &MainWindow::recoverHome);
+    lbl_robot_state_ = new QLabel(QStringLiteral("로봇 상태: —"));
+    rrow->addWidget(btn_recover_);
+    rrow->addWidget(lbl_robot_state_, 1);
+    p->body()->addLayout(rrow);
+  }
   lbl_jog_reason_ = new QLabel;
   lbl_jog_reason_->setWordWrap(true);
   lbl_jog_reason_->setStyleSheet("color:#f2a33a");
@@ -487,41 +521,49 @@ QWidget * MainWindow::buildJogPanel()
 // ======================================================================== 동작
 bool MainWindow::ask(const QString & title, const QString & text)
 {
-  return QMessageBox::question(this, title, text, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) ==
-         QMessageBox::Yes;
+  if (auto_yes_) {                                   // 시험용 (--selftest)
+    node_->log("INFO", "[시험] 확인창 자동 「예」: " + title.toStdString());
+    return true;
+  }
+  dialog_open_ = true;                               // 떠 있는 동안 손짓·음성이 새 확인창을 띄우지 않게
+  const bool yes = QMessageBox::question(this, title, text, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) ==
+    QMessageBox::Yes;
+  dialog_open_ = false;
+  return yes;
 }
 
 void MainWindow::onConnect()
 {
-  backend_->connectSim();
+  if (backend_->isReal() && !ask(QStringLiteral("로봇 접속"),
+      QStringLiteral("로봇에 접속합니다. 서보가 켜지고 펜던트의 제어 권한을 가져옵니다.\n팔은 움직이지 않습니다.\n\n"
+                     "로봇 옆에 사람이 있고 비상정지를 누를 수 있습니까?")))
+  {
+    return;
+  }
+  backend_->connectRobot();
 }
 
 void MainWindow::onDisconnect()
 {
-  if (ask(QStringLiteral("Disconnect"),
-      QStringLiteral("시뮬레이션(Gazebo·MoveIt·Task Manager)을 종료합니다.\n\n계속할까요?")))
-  {
+  const QString msg = backend_->isReal() ? QStringLiteral("접속을 끊으면 로봇 서보가 꺼집니다(브레이크가 팔을 잡습니다).") :
+    QStringLiteral("시뮬레이션(Gazebo·MoveIt·Task Manager)을 종료합니다.");
+  if (ask(QStringLiteral("Disconnect"), msg + QStringLiteral("\n\n계속할까요?"))) {
     chk_arm_->setChecked(false);
     queue_.clear();
     lst_queue_->clear();
     queue_running_ = false;
-    backend_->disconnectSim();
+    backend_->disconnectRobot();
   }
 }
 
 void MainWindow::onHome()
 {
-  if (armOk("홈 이동")) {node_->home(sld_speed_->value() / 100.0);}
+  if (armOk("홈 이동")) {backend_->home(sld_speed_->value());}
 }
 
 QString MainWindow::whyNotReady()
 {
-  const auto f = node_->statusFlags();
-  if (!f.joint_states) {return QStringLiteral("관절 상태가 들어오지 않음 (Connect 로 시뮬레이션 시작)");}
-  if (!f.moveit) {return QStringLiteral("MoveIt 준비 중");}
-  if (node_->taskRunning()) {return QStringLiteral("작업 실행 중");}
-  if (node_->manualBusy()) {return QStringLiteral("이전 수동 이동 진행 중");}
-  return QString();
+  return backend_->whyNotReady();
 }
 
 bool MainWindow::armOk(const std::string & what)
@@ -607,7 +649,7 @@ void MainWindow::onStop()
   queue_.clear();
   lst_queue_->clear();
   queue_running_ = false;
-  node_->stopAll();
+  backend_->stop();          // 실물: 브리지 정지 + 작업 취소, 시뮬레이션: 작업 취소 + MoveIt 중단
 }
 
 void MainWindow::onQueueAdd()
@@ -632,6 +674,12 @@ void MainWindow::queueTask(const std::string & color, const std::string & zone, 
 
 void MainWindow::onStartQueue()
 {
+  if (backend_->isReal()) {
+    QMessageBox::information(this, QStringLiteral("작업 실행"),
+      QStringLiteral("실물 로봇의 자동 작업(Task Manager 두산 백엔드)은 아직 검증되지 않아 막아 두었습니다.\n"
+                     "「실물 집기」 패널(클릭·손짓·음성)을 사용하세요."));
+    return;
+  }
   if (queue_.empty()) {onQueueAdd();}
   queue_running_ = true;
   nextTask();
@@ -661,6 +709,10 @@ void MainWindow::onVoiceRun(bool automatic)
   const auto v = node_->snapshot().voice;
   if (!v || !v->valid) {
     node_->log("WARN", "실행할 수 있는 음성 명령이 없음");
+    return;
+  }
+  if (real_) {                                       // 실물: 「실물 집기」 순서로 (매번 확인창)
+    realVoice(*v);
     return;
   }
   if (v->action == "place") {
@@ -710,7 +762,10 @@ void MainWindow::refreshCamera()
   std::optional<PinholeCamera> cam;
   PinholeCamera c;
   if (node_->cameraTransform(c.t, c.q)) {cam = c;}    // 시뮬레이션 카메라 (실물 카메라는 TF 없음 -> 픽셀만)
-  camera_->setSelection(sel_id_, sel_place_, s.task_running ? current_color_ : std::string());
+  camera_->setSelection(real_ ? std::string() : sel_id_, sel_place_, s.task_running ? current_color_ : std::string());
+  if (real_) {
+    camera_->setPixelMarks(place_px_, real_->calibPendingPx());
+  }
   camera_->setFrame(s.image, s.image_seq, s.objects, s.px_objects, cam);
 }
 
@@ -732,7 +787,7 @@ void MainWindow::refresh()
 
   // ---- 버튼·수동 조작 (조작 허용은 2분 동안 명령이 없으면 다시 잠근다)
   btn_connect_->setEnabled(!backend_->connected());
-  btn_start_->setEnabled(f.task_manager && !s.task_running);
+  btn_start_->setEnabled(!backend_->isReal() && f.task_manager && !s.task_running);
   if (chk_arm_->isChecked() &&
     std::chrono::steady_clock::now() - last_cmd_ > std::chrono::seconds(120))
   {
@@ -744,8 +799,10 @@ void MainWindow::refresh()
   lbl_jog_reason_->setText(why.isEmpty() ? QString() : QStringLiteral("이동 불가: ") + why);
   for (auto * b : jog_buttons_) {b->setEnabled(why.isEmpty());}
   btn_home_->setEnabled(why.isEmpty());
-  btn_gopen_->setEnabled(why.isEmpty() && f.gripper);
-  btn_gclose_->setEnabled(why.isEmpty() && f.gripper);
+  const GripperStatus gs_ = backend_->gripperStatus();
+  btn_gopen_->setEnabled(why.isEmpty() && (gs_.ok || gs_.warn));
+  btn_gclose_->setEnabled(why.isEmpty() && (gs_.ok || gs_.warn));
+  if (real_) {refreshReal(s);}
   btn_sel_run_->setEnabled(!sel_id_.empty() && sel_place_ && f.task_manager && !s.task_running);
 
   // ---- 시스템 상태
@@ -757,7 +814,7 @@ void MainWindow::refresh()
   sys_["detect"]->setText(theme::dot(f.detections || f.px_detections, f.detections ?
     QStringLiteral("%1개").arg(s.objects.size()) : f.px_detections ? QStringLiteral("픽셀 %1개").arg(s.px_objects.size()) :
     QStringLiteral("결과 없음")));
-  sys_["gripper"]->setText(theme::dot(f.gripper, f.gripper ? QStringLiteral("준비") : QStringLiteral("서비스 없음")));
+  sys_["gripper"]->setText(theme::dot(gs_.ok, gs_.text, gs_.warn));
   sys_["moveit"]->setText(theme::dot(f.moveit, f.moveit ? QStringLiteral("준비") : QStringLiteral("없음")));
   sys_["tm"]->setText(theme::dot(f.task_manager, f.task_manager ? QStringLiteral("준비") : QStringLiteral("없음")));
   const QString vs = QString::fromStdString(s.voice_state);
@@ -775,28 +832,29 @@ void MainWindow::refresh()
         s.task_status->state < 3 ? names[s.task_status->state] : "?",
         QString::fromStdString(s.task_status->stage)));
   }
+  const auto jd = backend_->jointsDeg();
   QString j;
-  for (int i = 1; i <= 6; ++i) {
-    auto it = s.joints.find("joint_" + std::to_string(i));
-    j += QStringLiteral("J%1 %2  ").arg(i).arg(it == s.joints.end() ? 0.0 : it->second * 180.0 / M_PI, 6, 'f', 1);
-    if (i == 3) {j += "\n";}
+  if (jd) {
+    for (int i = 0; i < 6; ++i) {
+      j += QStringLiteral("J%1 %2  ").arg(i + 1).arg((*jd)[i], 6, 'f', 1);
+      if (i == 2) {j += "\n";}
+    }
   }
-  lbl_joints_->setText(s.joints.empty() ? QStringLiteral("—") : j);
-  Vec3 tcp{}, rpy{};
-  const bool has_tcp = node_->tcpPose(tcp, rpy);
+  lbl_joints_->setText(jd ? j : QStringLiteral("—"));
+  double tcp[3], rpy[3];
+  const bool has_tcp = backend_->tcp(tcp, rpy);
   lbl_tcp_->setText(has_tcp ? QStringLiteral("X %1  Y %2  Z %3\nR %4  P %5  Y %6")
     .arg(tcp[0], 6, 'f', 3).arg(tcp[1], 6, 'f', 3).arg(tcp[2], 6, 'f', 3)
     .arg(rpy[0] * 180 / M_PI, 6, 'f', 1).arg(rpy[1] * 180 / M_PI, 6, 'f', 1).arg(rpy[2] * 180 / M_PI, 6, 'f', 1) :
     QStringLiteral("—"));
+  // 작업 공간 지도: 시뮬레이션은 world 손끝, 실물은 베이스 좌표 손끝 (베이스 = 지도 원점)
   workspace_->setState(s.objects, has_tcp ? std::optional<std::array<double, 2>>(std::array<double, 2>{tcp[0], tcp[1]}) :
     std::nullopt, s.task_running ? current_color_ : std::string(), sel_place_);
 
-  // ---- 그리퍼 (gripper_rh_r1 0 ~ 1.1 rad)
-  auto g = s.joints.find("gripper_rh_r1");
-  if (g != s.joints.end()) {
-    const double pos = std::clamp(g->second / 1.1, 0.0, 1.0);
-    bar_grip_->setValue(static_cast<int>(pos * 100));
-    lbl_grip_->setText((pos < 0.05 ? QStringLiteral("열림") : pos > 0.9 ? QStringLiteral("닫힘 (빈손)") :
+  // ---- 그리퍼 (0 열림 ~ 1 닫힘)
+  if (const auto gp = backend_->gripperPosition()) {
+    bar_grip_->setValue(static_cast<int>(*gp * 100));
+    lbl_grip_->setText((*gp < 0.05 ? QStringLiteral("열림") : *gp > 0.9 ? QStringLiteral("닫힘 (빈손)") :
       QStringLiteral("닫힘 (물체를 잡고 있음)")) +
       (s.gripper_msg.empty() ? QString() : "  ·  " + QString::fromStdString(s.gripper_msg)));
   }
@@ -856,10 +914,15 @@ void MainWindow::refresh()
           QStringLiteral("<span style='color:%1'>%2 %3</span>").arg(
             (s.voice->valid ? theme::kCyan : theme::kError).name(), s.voice->valid ? "✓" : "✗",
             QString::fromStdString(s.voice->message))));
-      if (s.voice->valid && chk_voice_auto_->isChecked()) {onVoiceRun(true);}
+      if (s.voice->valid && real_) {
+        // 실물: 인식되면 바로 확인창 (예 를 눌러야 움직임). 주기 갱신 밖에서 연다
+        QTimer::singleShot(0, this, [this]() {onVoiceRun(true);});
+      } else if (s.voice->valid && chk_voice_auto_->isChecked()) {
+        onVoiceRun(true);
+      }
     }
   }
-  btn_voice_run_->setEnabled(s.voice && s.voice->valid && !s.task_running);
+  btn_voice_run_->setEnabled(s.voice && s.voice->valid && !(real_ ? real_->pickRunning() : s.task_running));
 
   // ---- 로그
   const bool only = chk_log_aris_->isChecked();
@@ -942,8 +1005,21 @@ void MainWindow::runSelftest(std::function<void(bool)> done)
                 found = true;
               }
             }
-            onCameraClick(0.45, 0.25);
-            report("화면 선택 (이거 = blue_cube, 저기 = (0.45, 0.25))", found && sel_id_ == "blue_cube" && sel_place_);
+            // 빈 자리: 후보 중 모든 물체에서 8 cm 넘게 떨어진 첫 자리 (앞 시험이 큐브를 옮겨 두었을 수 있음)
+            std::array<double, 2> spot{0.45, 0.25};
+            for (const auto & c : {std::array<double, 2>{0.45, 0.25}, std::array<double, 2>{0.40, 0.15},
+                std::array<double, 2>{0.35, -0.20}, std::array<double, 2>{-0.20, 0.40}})
+            {
+              bool clear = true;
+              for (const auto & o : objs) {
+                clear &= std::hypot(o.pose.pose.position.x - c[0], o.pose.pose.position.y - c[1]) > 0.08;
+              }
+              if (clear) {spot = c; break;}
+            }
+            onCameraClick(spot[0], spot[1]);
+            char name[96];
+            std::snprintf(name, sizeof(name), "화면 선택 (이거 = blue_cube, 저기 = (%.2f, %.2f))", spot[0], spot[1]);
+            report(name, found && sel_id_ == "blue_cube" && sel_place_);
             mark();
             runSelection();
           }
@@ -966,10 +1042,12 @@ void MainWindow::closeEvent(QCloseEvent * ev)
 {
   timer_.stop();
   cam_timer_.stop();
-  if (backend_->running() &&
+  if (backend_->isReal()) {
+    backend_->shutdown();          // 이 화면이 띄운 브리지·음성·손짓만 끈다 (브리지가 시작한 로봇 접속도 끊김)
+  } else if (backend_->ownsProcess() &&
     ask(QStringLiteral("종료"), QStringLiteral("이 화면이 실행한 시뮬레이션도 함께 끌까요?")))
   {
-    backend_->disconnectSim();
+    backend_->shutdown();
   }
   QMainWindow::closeEvent(ev);
 }

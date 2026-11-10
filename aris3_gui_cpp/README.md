@@ -30,9 +30,16 @@ ros2 run aris3_gui_cpp aris --connect --task blue:A --screenshot /tmp/aris.png -
 - **M2**: 수동 조작(조작 허용 2분 잠금, TCP·관절 조그, 그리퍼, 홈 - MoveIt), 손끝 TCP 표시, 카메라 검출 TF 투영,
   클릭 선택(이거/저기)과 「선택한 물체를 그 자리로」, 음성 「이거/저기/홈」, 작업 공간 2D.
   시험: `ros2 run aris3_gui_cpp aris --selftest` (시뮬레이션이 떠 있을 때, 조작 허용·홈·조그·화면 선택 작업 자동 확인)
-- **M3**: 실물 모드 (`aris3_real_bridge`), 실물 집기·보정, 손짓 - `aris3_real_sim.launch.py` 로 시험.
+- **M3**: 실물 모드 `--mode real` (`aris3_real_bridge` 를 통해서만 로봇을 움직임). 실물 집기 패널(화면 클릭으로
+  물체·놓을 자리 고르기, 집기/놓기/집어서 옮기기 - 모두 확인 창), 보정 불러오기·상태, 손짓 이벤트, 손 안내, 복구 홈.
+  `--sim` 이면 가상 컨트롤러(DRCF 에뮬레이터) + `aris3_real_sim.launch.py` 로 실물과 비슷하게 시험.
+  시험: `ros2 run aris3_gui_cpp aris --mode real --sim --selftest` (접속·조작 허용·홈·보정·선택·집어서 옮기기·정지 7가지)
 
-M3 전에는 실물 모드를 `aris3_gui`(PyQt)에서 쓴다.
+| 파일 | 하는 일 |
+|---|---|
+| `include/aris3_gui_cpp/backend.hpp` | 모드 공통 `Backend` 와 프로세스 그룹 관리 `LaunchProc` |
+| `src/real_backend.cpp` | 실물 모드: `/aris3/real/*` 상태·서비스·액션, 브리지·음성·손짓 프로세스 |
+| `src/main_window_real.cpp` | 실물 집기 패널, 실물 화면 갱신, 실물 자체 시험 |
 
 ## 안전
 

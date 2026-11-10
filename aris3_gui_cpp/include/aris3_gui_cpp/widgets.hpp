@@ -54,6 +54,11 @@ public:
   void setSelection(const std::string & id, const std::optional<std::array<double, 2>> & place,
     const std::string & highlight_color);
 
+  // 실물(픽셀) 표시: 놓을 자리 픽셀(시안 조준선), 보정 ① 기억 픽셀(노랑), 손짓 포인터(손끝 + 멈춤 진행 링 + 손짓 글자)
+  void setPixelMarks(const std::optional<std::array<double, 2>> & place_px,
+    const std::optional<std::array<double, 2>> & calib_px);
+  void setPointer(const std::optional<std::array<double, 2>> & tip, double progress, const QString & text);
+
   std::function<void(double, double)> onWorldClick;   // 탁자 위 world (x, y) [m] - 카메라 TF 있을 때
   std::function<void(double, double)> onPixelClick;   // 영상 픽셀 (u, v) - 카메라 TF 없을 때 (실물)
   double plane_z{0.775};                               // 클릭을 탁자 위 이 높이(큐브 중심)로 본다
@@ -71,6 +76,9 @@ private:
   std::optional<PinholeCamera> cam_;
   std::string selected_id_, highlight_;
   std::optional<std::array<double, 2>> place_;
+  std::optional<std::array<double, 2>> place_px_, calib_px_, pointer_;
+  double pointer_progress_{0.0};
+  QString pointer_text_;
   bool show_det_{true};
 };
 

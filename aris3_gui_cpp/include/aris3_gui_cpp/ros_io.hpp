@@ -17,6 +17,8 @@
 #include "aris3_gui_cpp/gui_logic.hpp"
 #include "aris3_interfaces/action/execute_task.hpp"
 #include "aris3_interfaces/msg/detected_object_array.hpp"
+#include "aris3_interfaces/msg/gesture_event.hpp"
+#include "aris3_interfaces/msg/hand_gesture.hpp"
 #include "aris3_interfaces/msg/task_status.hpp"
 #include "aris3_interfaces/msg/voice_command.hpp"
 #include "aris3_interfaces/srv/gripper_command.hpp"
@@ -54,6 +56,7 @@ struct Snapshot
   std::optional<aris3_interfaces::msg::TaskStatus> task_status;
   std::optional<aris3_interfaces::msg::VoiceCommand> voice;
   std::string voice_state, gesture_state;
+  std::optional<aris3_interfaces::msg::HandGesture> gesture;  // 마지막 손짓 (0.5 초 안에 받은 것만)
   std::optional<aris3_interfaces::action::ExecuteTask::Feedback> feedback;
   std::optional<std::pair<bool, std::string>> last_result;  // (성공, 문장)
   StageTracker stages;
@@ -99,6 +102,9 @@ public:
   // 그리퍼 (시뮬레이션 /aris3/gripper/command): 0 열기, 1 닫기
   void gripper(uint8_t command);
 
+  // 손짓 선택·확정 이벤트 (aris3_gesture 가 판단) 를 모두 꺼낸다. 한 번 꺼낸 것은 다시 나오지 않음
+  std::vector<aris3_interfaces::msg::GestureEvent> popGestureEvents();
+
   // ---- TF
   // world -> 카메라 광학 좌표 변환 (영상 frame_id 기준). 없으면 false
   bool cameraTransform(Vec3 & t, Quat & q);
@@ -130,6 +136,8 @@ private:
   uint64_t log_seq_{0};
   RateMeter js_rate_, clock_rate_, cam_rate_, px_rate_, det_rate_, voice_rate_, gesture_rate_;
   GoalHandle::SharedPtr goal_;
+  std::chrono::steady_clock::time_point gesture_time_;
+  std::vector<aris3_interfaces::msg::GestureEvent> gesture_events_;
 
   rclcpp::CallbackGroup::SharedPtr cb_;
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subs_;

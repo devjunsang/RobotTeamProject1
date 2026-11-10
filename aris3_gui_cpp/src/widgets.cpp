@@ -113,6 +113,20 @@ void CameraView::setSelection(const std::string & id, const std::optional<std::a
   highlight_ = highlight_color;
 }
 
+void CameraView::setPixelMarks(const std::optional<std::array<double, 2>> & place_px,
+  const std::optional<std::array<double, 2>> & calib_px)
+{
+  place_px_ = place_px;
+  calib_px_ = calib_px;
+}
+
+void CameraView::setPointer(const std::optional<std::array<double, 2>> & tip, double progress, const QString & text)
+{
+  pointer_ = tip;
+  pointer_progress_ = progress;
+  pointer_text_ = text;
+}
+
 QRectF CameraView::imageRect() const
 {
   const QSize s = img_.size().scaled(size(), Qt::KeepAspectRatio);
@@ -175,6 +189,27 @@ void CameraView::paintEvent(QPaintEvent *)
           QString(" %1").arg(o.confidence, 0, 'f', 2);
         drawBox(p, QPointF(r.x() + o.pose.pose.position.x * k, r.y() + o.pose.pose.position.y * k), half, label,
           theme::kCyan, false, !o.id.empty() && o.id == selected_id_);
+      }
+    }
+    // 실물: 놓을 자리 픽셀(시안), 보정 ① 기억 픽셀(노랑)
+    if (place_px_) {drawPlaceMarker(p, QPointF(r.x() + (*place_px_)[0] * k, r.y() + (*place_px_)[1] * k), 12, theme::kCyan);}
+    if (calib_px_) {drawPlaceMarker(p, QPointF(r.x() + (*calib_px_)[0] * k, r.y() + (*calib_px_)[1] * k), 16, QColor("#ffea00"));}
+    // 손짓 포인터: 손끝 점 + 가리키고 멈춘 시간만큼 차오르는 링 + 손짓 글자
+    if (pointer_) {
+      const QPointF c(r.x() + (*pointer_)[0] * k, r.y() + (*pointer_)[1] * k);
+      p.setPen(QPen(QColor(0, 0, 0, 120), 6));
+      p.setBrush(Qt::NoBrush);
+      p.drawEllipse(c, 22, 22);
+      if (pointer_progress_ > 0) {
+        p.setPen(QPen(theme::kCyan, 6, Qt::SolidLine, Qt::RoundCap));
+        p.drawArc(QRectF(c.x() - 22, c.y() - 22, 44, 44), 90 * 16, -static_cast<int>(pointer_progress_ * 360 * 16));
+      }
+      p.setPen(Qt::NoPen);
+      p.setBrush(theme::kCyan);
+      p.drawEllipse(c, 5, 5);
+      if (!pointer_text_.isEmpty()) {
+        p.setPen(QColor("white"));
+        p.drawText(c + QPointF(28, 5), pointer_text_);
       }
     }
     // 놓을 자리 (화면 선택 「저기」)

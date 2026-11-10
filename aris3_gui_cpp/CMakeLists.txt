@@ -27,6 +27,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 
 # Qt 의 moc(시그널·슬롯)·rcc(리소스: 로고·테마) 를 자동으로
@@ -43,6 +44,11 @@ add_executable(aris
   src/main.cpp
   src/ros_io.cpp
   src/sim_backend.cpp
+  src/launch_proc.cpp
+  src/real_backend.cpp
+  src/main_window_real.cpp
+  include/aris3_gui_cpp/backend.hpp
+  include/aris3_gui_cpp/real_backend.hpp
   src/theme.cpp
   src/widgets.cpp
   src/main_window.cpp
@@ -54,7 +60,7 @@ add_executable(aris
 target_include_directories(aris PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(aris gui_logic Qt5::Core Qt5::Gui Qt5::Widgets)
 ament_target_dependencies(aris rclcpp rclcpp_action aris3_interfaces sensor_msgs std_msgs rcl_interfaces
-  rosgraph_msgs moveit_msgs geometry_msgs shape_msgs tf2 tf2_ros)
+  rosgraph_msgs moveit_msgs geometry_msgs shape_msgs tf2 tf2_ros std_srvs)
 
 install(TARGETS aris DESTINATION lib/${PROJECT_NAME})
 
