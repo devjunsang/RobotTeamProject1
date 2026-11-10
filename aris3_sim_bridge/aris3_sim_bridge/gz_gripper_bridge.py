@@ -216,7 +216,10 @@ class GzGripperBridge(Node):
         elif closing:
             res.message = (f'CLOSE: {self.joint}={pos:.3f} -> '
                            f'{"물체에 막혀 멈춤 (잡음)" if res.holding else "끝까지 닫힘 (빈손)"}')
+        else:
+            res.message = f'OPEN: {self.joint}={pos:.3f}'
         # 막혀서 멈추는 중이면(settled 가 아니어도) 잡은 것으로 보고 보조 고정을 시도
+        # (2026-11-09: 예전에는 아래 else 가 CLOSE 결과까지 'OPEN: ...' 으로 덮어써서 원인을 가렸다)
         if closing and res.holding and self.assist:
             # 손가락을 막힌 자리에 멈춘다. 계속 닫으려 하면 손에 고정된 물체를 밀어
             # 손가락 메시 안으로 박아 넣는다 (2026-11-08: 고정 해제 뒤에도 물체가 손가락에 끼어 있었음).
@@ -226,8 +229,6 @@ class GzGripperBridge(Node):
             res.message += f' | {note}'
             if not res.object_id:
                 res.holding = False
-        else:
-            res.message = f'OPEN: {self.joint}={pos:.3f}'
         self.get_logger().info(f'{res.message} success={res.success} holding={res.holding}')
         return res
 
