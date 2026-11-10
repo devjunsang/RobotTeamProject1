@@ -25,6 +25,9 @@ TargetEstimator::TargetEstimator(TargetQuery query, double same_object_radius_m)
 
 bool TargetEstimator::matches(const Observation & o) const
 {
+  if (!q_.id.empty()) {
+    return o.id == q_.id && o.confidence >= q_.min_confidence;
+  }
   if (lower(o.color) != q_.color) {return false;}
   if (!q_.shape.empty() && lower(o.shape) != q_.shape) {return false;}
   return o.confidence >= q_.min_confidence;

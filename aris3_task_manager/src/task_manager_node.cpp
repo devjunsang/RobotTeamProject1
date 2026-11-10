@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 
@@ -223,6 +224,7 @@ void TaskManagerNode::loadParameters()
   const auto names = get_parameter("zone_names").as_string_array();
   const auto xy = get_parameter("zone_xy_world").as_double_array();
   const double table_z = get_parameter("table_z_world").as_double();
+  table_z_world_ = table_z;
   if (xy.size() != 2 * names.size()) {
     throw std::runtime_error("zone_xy_world 는 zone_names 개수의 2배 (x, y 쌍) 여야 함");
   }
@@ -252,18 +254,32 @@ void TaskManagerNode::loadParameters()
 // =====================================================================================
 // 액션 서버 콜백 3종 — executor 스레드에서 불리므로 오래 걸리는 일을 하면 안 된다.
 // =====================================================================================
+namespace
+{
+// 로그용 한 줄 요약: "blue_cube -> (0.300, -0.200)" / "red -> A"
+std::string describeGoal(const aris3_interfaces::action::ExecuteTask::Goal & g)
+{
+  std::string what = g.target_id.empty() ? g.target_color : g.target_id;
+  if (g.target_id.empty() && !g.target_shape.empty()) {what += " " + g.target_shape;}
+  char where[64];
+  if (g.use_place_position) {
+    std::snprintf(where, sizeof(where), "(%.3f, %.3f)", g.place_position.x, g.place_position.y);
+  } else {
+    std::snprintf(where, sizeof(where), "%s", g.destination.c_str());
+  }
+  return what + " -> " + where + (g.dry_run ? " (dry_run)" : "");
+}
+}  // namespace
+
 rclcpp_action::GoalResponse TaskManagerNode::handleGoal(
   const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecuteTask::Goal> goal)
 {
   // 한 번에 한 작업만. exchange(true) 는 "이전 값을 돌려주고 true 로 바꾸기"를 한 번에(원자적으로) 한다.
   if (busy_.exchange(true)) {
-    RCLCPP_WARN(get_logger(), "거절: 이미 작업 중 (%s -> %s 요청)",
-      goal->target_color.c_str(), goal->destination.c_str());
+    RCLCPP_WARN(get_logger(), "거절: 이미 작업 중 (%s 요청)", describeGoal(*goal).c_str());
     return rclcpp_action::GoalResponse::REJECT;
   }
-  RCLCPP_INFO(get_logger(), "수락: %s%s%s -> %s%s", goal->target_color.c_str(),
-    goal->target_shape.empty() ? "" : " ", goal->target_shape.c_str(), goal->destination.c_str(),
-    goal->dry_run ? " (dry_run)" : "");
+  RCLCPP_INFO(get_logger(), "수락: %s", describeGoal(*goal).c_str());
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -290,7 +306,7 @@ void TaskManagerNode::execute(std::shared_ptr<GoalHandle> goal_handle)
   ctx.goal_handle = goal_handle;
   ctx.goal = *goal_handle->get_goal();
   ctx.start = std::chrono::steady_clock::now();
-  ctx.task_id = lower(ctx.goal.target_color) + "->" + upper(ctx.goal.destination) + " #" +
+  ctx.task_id = describeGoal(ctx.goal) + " #" +
     std::to_string(++task_counter_);
 
   ErrorCode code = ErrorCode::NONE;
@@ -321,7 +337,7 @@ void TaskManagerNode::execute(std::shared_ptr<GoalHandle> goal_handle)
       }
       stagePlace(ctx);
       stageVerify(ctx);
-      message = fmt("완료: 구역 중심에서 %.1f mm (허용 %.0f mm)", ctx.result->place_error_mm,
+      message = "완료: " + ctx.dest_label + fmt(" 중심에서 %.1f mm (허용 %.0f mm)", ctx.result->place_error_mm,
           zone_tolerance_m_ * 1000, 0);
     }
   } catch (const TaskError & e) {
@@ -373,20 +389,36 @@ void TaskManagerNode::stageValidate(TaskContext & ctx)
   if (!g.task_type.empty() && lower(g.task_type) != "pick_place") {
     throw TaskError(ErrorCode::INVALID_GOAL, "지원하지 않는 작업 종류: " + g.task_type);
   }
+  // 무엇을: 물체 이름(target_id, 손짓으로 고른 물체) 또는 색(+모양)
   const std::string color = lower(g.target_color);
-  if (std::find(known_colors_.begin(), known_colors_.end(), color) == known_colors_.end()) {
+  if (g.target_id.empty() &&
+    std::find(known_colors_.begin(), known_colors_.end(), color) == known_colors_.end())
+  {
     std::string list;
     for (const auto & c : known_colors_) {list += c + " ";}
     throw TaskError(ErrorCode::INVALID_GOAL, "모르는 색 '" + g.target_color + "' (가능: " + list + ")");
   }
-  auto zone = zones_world_.find(upper(g.destination));
-  if (zone == zones_world_.end()) {
-    std::string list;
-    for (const auto & z : zones_world_) {list += z.first + " ";}
-    throw TaskError(ErrorCode::INVALID_GOAL, "모르는 구역 '" + g.destination + "' (가능: " + list + ")");
+  ctx.query = TargetQuery{color, lower(g.target_shape), min_confidence_, g.target_id};
+  ctx.target_label = g.target_id.empty() ? color : g.target_id;
+
+  // 어디에: 이름 붙은 구역 또는 임의 좌표(place_position, world_frame, 탁자 표면)
+  if (g.use_place_position) {
+    if (!std::isfinite(g.place_position.x) || !std::isfinite(g.place_position.y)) {
+      throw TaskError(ErrorCode::INVALID_GOAL, "놓을 좌표가 숫자가 아님");
+    }
+    ctx.zone_world = Vec3{g.place_position.x, g.place_position.y, table_z_world_};
+    ctx.dest_label = fmt("(%.3f, %.3f)", g.place_position.x, g.place_position.y, 0);
+    // 작업 공간 밖 좌표는 PLAN 단계의 작업 공간·IK 검사가 움직이기 전에 거부한다.
+  } else {
+    auto zone = zones_world_.find(upper(g.destination));
+    if (zone == zones_world_.end()) {
+      std::string list;
+      for (const auto & z : zones_world_) {list += z.first + " ";}
+      throw TaskError(ErrorCode::INVALID_GOAL, "모르는 구역 '" + g.destination + "' (가능: " + list + ")");
+    }
+    ctx.zone_world = zone->second;
+    ctx.dest_label = "구역 " + zone->first;
   }
-  ctx.zone_world = zone->second;
-  ctx.query = TargetQuery{color, lower(g.target_shape), min_confidence_};
 
   std::string missing;
   if (!robot_->servicesReady(&missing)) {
@@ -420,7 +452,7 @@ void TaskManagerNode::stageValidate(TaskContext & ctx)
   if (!refreshTransforms(&tf_error)) {
     throw TaskError(ErrorCode::NOT_READY, "좌표 변환 없음: " + tf_error);
   }
-  report(ctx, "확인 완료: 로봇 대기, 그리퍼·카메라·TF 정상. 구역 " + upper(g.destination) + " " +
+  report(ctx, "확인 완료: 로봇 대기, 그리퍼·카메라·TF 정상. 놓을 자리 " + ctx.dest_label + " " +
     xyz(ctx.zone_world), 1.0);
 }
 
@@ -440,7 +472,7 @@ void TaskManagerNode::stageObserve(TaskContext & ctx)
 // ---- 3. PERCEIVE: 여러 장의 카메라 결과로 목표 물체 위치를 정한다.
 void TaskManagerNode::stagePerceive(TaskContext & ctx)
 {
-  enterStage(ctx, Stage::PERCEIVE, "카메라로 " + ctx.query.color + " 물체 찾기");
+  enterStage(ctx, Stage::PERCEIVE, "카메라로 " + ctx.target_label + " 물체 찾기");
   const Estimate e = perceive(ctx, "집기 전");
   switch (e.status) {
     case EstimateStatus::OK: break;
@@ -455,10 +487,10 @@ void TaskManagerNode::stagePerceive(TaskContext & ctx)
   const auto occupants = occupantsNear(ctx.last_objects, ctx.zone_world, zone_clear_radius_m_, e.mean);
   if (!occupants.empty()) {
     const auto & o = occupants.front();
-    throw TaskError(ErrorCode::DESTINATION_OCCUPIED, "구역 " + upper(ctx.goal.destination) + "에 이미 " +
+    throw TaskError(ErrorCode::DESTINATION_OCCUPIED, ctx.dest_label + "에 이미 " +
             (o.id.empty() ? o.color : o.id) + " 가 있음 " + xyz(o.position) + " - 움직이지 않음");
   }
-  report(ctx, "찾음: " + (e.id.empty() ? ctx.query.color : e.id) + " " + xyz(e.mean) +
+  report(ctx, "찾음: " + (e.id.empty() ? ctx.target_label : e.id) + " " + xyz(e.mean) +
     fmt(" (영상 %.0f장, 흔들림 %.1f mm)", e.frames_matched, e.spread_m * 1000, 0), 1.0);
 }
 
@@ -541,14 +573,14 @@ void TaskManagerNode::stagePick(TaskContext & ctx)
             (wrong_object ? " (다른 물체 " + g.object_id + ")" : ""));
   }
   ctx.holding = true;
-  report(ctx, "잡음: " + (g.object_id.empty() ? ctx.query.color : g.object_id), 0.7);
+  report(ctx, "잡음: " + (g.object_id.empty() ? ctx.target_label : g.object_id), 0.7);
   moveTcp(ctx, ctx.plan.above_object, "들어 올리기");
 }
 
 // ---- 6. PLACE: 구역 위 → 하강 → 열기 → 위로 빠지기
 void TaskManagerNode::stagePlace(TaskContext & ctx)
 {
-  enterStage(ctx, Stage::PLACE, "구역 " + upper(ctx.goal.destination) + "에 놓기");
+  enterStage(ctx, Stage::PLACE, ctx.dest_label + "에 놓기");
   moveTcp(ctx, ctx.plan.above_zone, "구역 위로", true);
   moveTcp(ctx, ctx.plan.place, "놓는 위치로 하강");
   auto g = gripper_->open();
@@ -575,9 +607,9 @@ void TaskManagerNode::stageVerify(TaskContext & ctx)
   ctx.result->place_error_mm = static_cast<float>(err * 1000.0);
   if (err > zone_tolerance_m_) {
     throw TaskError(ErrorCode::PLACE_VERIFY_FAILED,
-            fmt("구역 밖: 중심에서 %.1f mm (허용 %.0f mm)", err * 1000, zone_tolerance_m_ * 1000, 0));
+            ctx.dest_label + fmt(" 밖: 중심에서 %.1f mm (허용 %.0f mm)", err * 1000, zone_tolerance_m_ * 1000, 0));
   }
-  report(ctx, "구역 안 확인: 물체 " + xyz(e.mean) + fmt(", 중심에서 %.1f mm", err * 1000, 0, 0), 1.0);
+  report(ctx, ctx.dest_label + " 안 확인: 물체 " + xyz(e.mean) + fmt(", 중심에서 %.1f mm", err * 1000, 0, 0), 1.0);
 }
 
 // ---- 실패·취소 후 처리
