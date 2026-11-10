@@ -146,6 +146,8 @@ class VoiceNode(Node):
         valid, why = validate_command(cmd, self.known) if text else (False, note or '음성이 인식되지 않았습니다')
         out = VoiceCommand(text=text, normalized_text=cmd['normalized_text'], action=cmd['action'],
                            color=cmd['color'], shape=cmd['shape'], valid=valid, message=why,
+                           refers_selected_object=bool(cmd['ref_object']),
+                           refers_selected_place=bool(cmd['ref_place']),
                            stt_time_s=float(stt_time))
         out.stamp = self.get_clock().now().to_msg()
         self.pub_cmd.publish(out)
