@@ -4,6 +4,7 @@
 //   ros2 run aris3_gui_cpp aris --no-assist          # 순수 마찰 파지
 // 시험용: --screenshot <png> --quit-after <초>  (화면을 파일로 저장하고 종료)
 //         --connect (시작하자마자 Connect), --task blue:A (Task Manager 가 준비되면 작업 큐에 넣고 실행, 여러 번 가능)
+//         --selftest (수동 조작·화면 선택 자동 시험, 끝나면 종료 코드 0/1 로 끝냄)
 // 실물 모드(--mode real)는 다음 단계(M3) - 그 전에는 aris3_gui(PyQt) --mode real 을 쓴다.
 #include <QApplication>
 #include <QTimer>
@@ -36,7 +37,7 @@ int main(int argc, char ** argv)
   // ROS 인자(--ros-args ...)는 rclcpp 가, 나머지는 여기서 읽는다
   rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
   const auto args = rclcpp::remove_ros_arguments(argc, argv);
-  bool voice = true, assist = true, connect_now = false;
+  bool voice = true, assist = true, connect_now = false, selftest = false;
   std::vector<std::pair<std::string, std::string>> tasks;   // (색, 구역)
   std::string screenshot;
   double quit_after = 0.0;
@@ -45,6 +46,8 @@ int main(int argc, char ** argv)
       voice = false;
     } else if (args[i] == "--no-assist") {
       assist = false;
+    } else if (args[i] == "--selftest") {
+      selftest = true;
     } else if (args[i] == "--connect") {
       connect_now = true;
     } else if (args[i] == "--task" && i + 1 < args.size()) {
@@ -89,7 +92,15 @@ int main(int argc, char ** argv)
       });
     task_timer.start(1000);
   }
-  if (!screenshot.empty()) {
+  int selftest_code = -1;
+  if (selftest) {
+    w.runSelftest([&](bool ok) {
+        selftest_code = ok ? 0 : 1;
+        if (!screenshot.empty()) {w.grab().save(QString::fromStdString(screenshot));}
+        QTimer::singleShot(500, &app, &QApplication::quit);
+      });
+  }
+  if (!screenshot.empty() && !selftest) {
     QTimer::singleShot(static_cast<int>(std::max(1.0, quit_after - 0.5) * 1000), &w,
       [&w, screenshot]() {w.grab().save(QString::fromStdString(screenshot));});
   }
@@ -99,5 +110,5 @@ int main(int argc, char ** argv)
   exec.cancel();
   spin.join();
   rclcpp::shutdown();
-  return code;
+  return selftest_code >= 0 ? selftest_code : code;
 }

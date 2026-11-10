@@ -3,10 +3,15 @@
 
 #include <QByteArray>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/qos.hpp"
+#include "shape_msgs/msg/solid_primitive.hpp"
+#include "tf2/exceptions.h"
 
 namespace aris
 {
@@ -103,6 +108,8 @@ GuiNode::GuiNode(const std::string & robot_ns, const std::string & camera_topic)
   pub_active_ = create_publisher<std_msgs::msg::Bool>("/aris3/voice/active", 10);   // 음성 명령 모드 ON/OFF
   pub_text_ = create_publisher<std_msgs::msg::String>("/aris3/voice/text", 10);
   pub_traj_event_ = create_publisher<std_msgs::msg::String>("/trajectory_execution_event", 10);
+  tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_);
 }
 
 // ---------------------------------------------------------------- 영상
@@ -119,6 +126,7 @@ void GuiNode::onImage(const sensor_msgs::msg::Image::SharedPtr m)
   }
   std::lock_guard<std::mutex> lk(mtx_);
   s_.image = img;
+  s_.image_frame = m->header.frame_id;
   ++s_.image_seq;
   cam_rate_.tick();
 }
@@ -130,6 +138,7 @@ void GuiNode::onCompressed(const sensor_msgs::msg::CompressedImage::SharedPtr m)
   if (!img.loadFromData(m->data.data(), static_cast<int>(m->data.size()))) {return;}
   std::lock_guard<std::mutex> lk(mtx_);
   s_.image = img;
+  s_.image_frame = m->header.frame_id;
   ++s_.image_seq;
   cam_rate_.tick();
 }
@@ -303,6 +312,194 @@ void GuiNode::gripper(uint8_t command)
       }
       log(r && r->success ? "INFO" : "ERROR", "그리퍼: " + (r ? r->message : std::string("응답 없음")));
     });
+}
+
+// ---------------------------------------------------------------- TF
+bool GuiNode::cameraTransform(Vec3 & t, Quat & q)
+{
+  std::string frame;
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    frame = s_.image_frame;
+  }
+  if (frame.empty()) {return false;}
+  try {
+    const auto tr = tf_->lookupTransform(frame, "world", tf2::TimePointZero);
+    t = {tr.transform.translation.x, tr.transform.translation.y, tr.transform.translation.z};
+    q = {tr.transform.rotation.x, tr.transform.rotation.y, tr.transform.rotation.z, tr.transform.rotation.w};
+    return true;
+  } catch (const tf2::TransformException &) {
+    return false;     // 실물 카메라처럼 카메라 TF 가 없을 수 있음 (그때는 픽셀 검출만 그림)
+  }
+}
+
+bool GuiNode::tcpPose(Vec3 & tcp, Vec3 & rpy, double tcp_offset)
+{
+  try {
+    const auto tr = tf_->lookupTransform("world", "link_6", tf2::TimePointZero);
+    const auto & p = tr.transform.translation;
+    const auto & q = tr.transform.rotation;
+    // 공구 z 축 = 회전 행렬의 3번째 열 -> 집는 점은 link_6 에서 그 방향으로 tcp_offset
+    const double zx = 2 * (q.x * q.z + q.w * q.y), zy = 2 * (q.y * q.z - q.w * q.x), zz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    tcp = {p.x + zx * tcp_offset, p.y + zy * tcp_offset, p.z + zz * tcp_offset};
+    rpy = {std::atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y)),
+      std::asin(std::clamp(2 * (q.w * q.y - q.z * q.x), -1.0, 1.0)),
+      std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))};
+    return true;
+  } catch (const tf2::TransformException &) {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------- 수동 조작 (MoveIt)
+bool GuiNode::manualBusy()
+{
+  std::lock_guard<std::mutex> lk(mtx_);
+  return s_.manual_busy;
+}
+
+void GuiNode::moveGoal(const moveit_msgs::msg::Constraints & c, const std::string & label,
+  const std::string & pipeline, const std::string & planner, double vel)
+{
+  // 안전: 작업 중에는 수동 조작을 받지 않고, 한 번에 하나만
+  if (taskRunning()) {
+    log("WARN", label + ": 작업 중에는 수동 조작 불가");
+    return;
+  }
+  if (manualBusy()) {
+    log("WARN", label + ": 이전 수동 이동이 아직 끝나지 않음");
+    return;
+  }
+  if (!move_client_->action_server_is_ready()) {
+    log("ERROR", "MoveIt(/move_action) 없음");
+    return;
+  }
+  moveit_msgs::action::MoveGroup::Goal g;
+  auto & r = g.request;
+  r.group_name = "arm";
+  r.pipeline_id = pipeline;
+  r.planner_id = planner;
+  r.num_planning_attempts = 3;
+  r.allowed_planning_time = 3.0;
+  r.max_velocity_scaling_factor = vel;
+  r.max_acceleration_scaling_factor = vel;
+  r.goal_constraints = {c};
+  g.planning_options.plan_only = false;
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    s_.manual_busy = true;
+  }
+  log("INFO", "수동: " + label);
+  using MG = moveit_msgs::action::MoveGroup;
+  rclcpp_action::Client<MG>::SendGoalOptions opt;
+  opt.goal_response_callback = [this, label](rclcpp_action::ClientGoalHandle<MG>::SharedPtr h) {
+      if (!h) {
+        {
+          std::lock_guard<std::mutex> lk(mtx_);
+          s_.manual_busy = false;
+        }
+        log("ERROR", label + ": MoveIt 이 거절");
+      }
+    };
+  opt.result_callback = [this, label](const rclcpp_action::ClientGoalHandle<MG>::WrappedResult & res) {
+      {
+        std::lock_guard<std::mutex> lk(mtx_);
+        s_.manual_busy = false;
+      }
+      const int code = res.result ? res.result->error_code.val : 0;
+      if (code == moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
+        log("INFO", label + ": 완료");
+      } else {
+        log("ERROR", label + ": 실패 (MoveIt error_code " + std::to_string(code) +
+          " - 도달 불가·충돌·관절 한계일 수 있음)");
+      }
+    };
+  move_client_->async_send_goal(g, opt);
+}
+
+moveit_msgs::msg::Constraints GuiNode::jointConstraints(const std::vector<double> & target_rad)
+{
+  moveit_msgs::msg::Constraints c;
+  for (size_t i = 0; i < target_rad.size(); ++i) {
+    moveit_msgs::msg::JointConstraint j;
+    j.joint_name = "joint_" + std::to_string(i + 1);
+    j.position = target_rad[i];
+    j.tolerance_above = j.tolerance_below = 0.005;
+    j.weight = 1.0;
+    c.joint_constraints.push_back(j);
+  }
+  return c;
+}
+
+void GuiNode::home(double vel)
+{
+  const double d = M_PI / 180.0;
+  moveGoal(jointConstraints({0.0, 0.0, 90 * d, 0.0, 90 * d, 0.0}), "홈 자세", "ompl", "", vel);
+}
+
+void GuiNode::jogJoint(int index, double step_deg, double vel)
+{
+  const double step = std::clamp(step_deg, -10.0, 10.0);       // 실물 한계(e0509_manual)와 같은 값
+  std::vector<double> cur(6);
+  bool ok = true;
+  {
+    // 잠금 안에서는 값만 읽는다 (log() 도 같은 잠금을 쓰므로 여기서 부르면 멈춤)
+    std::lock_guard<std::mutex> lk(mtx_);
+    ok = js_rate_.fresh();
+    for (int i = 0; i < 6 && ok; ++i) {
+      auto it = s_.joints.find("joint_" + std::to_string(i + 1));
+      ok = it != s_.joints.end();
+      if (ok) {cur[i] = it->second;}
+    }
+  }
+  if (!ok) {
+    log("ERROR", "관절 상태가 들어오지 않음");
+    return;
+  }
+  cur[index] += step * M_PI / 180.0;
+  char label[48];
+  std::snprintf(label, sizeof(label), "J%d %+.0f°", index + 1, step);
+  moveGoal(jointConstraints(cur), label, "ompl", "", vel);
+}
+
+void GuiNode::jogTcp(int axis, double step_mm, double vel)
+{
+  const double step = std::clamp(step_mm, -20.0, 20.0) / 1000.0;
+  geometry_msgs::msg::TransformStamped tr;
+  try {
+    tr = tf_->lookupTransform("world", "link_6", tf2::TimePointZero);
+  } catch (const tf2::TransformException & e) {
+    log("ERROR", std::string("현재 손끝 위치 모름 (TF): ") + e.what());
+    return;
+  }
+  // link_6 를 world 기준 X/Y/Z 로 직선 이동, 방향 유지 (Pilz LIN)
+  geometry_msgs::msg::Pose target;
+  target.position.x = tr.transform.translation.x;
+  target.position.y = tr.transform.translation.y;
+  target.position.z = tr.transform.translation.z;
+  (axis == 0 ? target.position.x : axis == 1 ? target.position.y : target.position.z) += step;
+  target.orientation = tr.transform.rotation;
+  moveit_msgs::msg::PositionConstraint pc;
+  pc.header.frame_id = "world";
+  pc.link_name = "link_6";
+  pc.weight = 1.0;
+  shape_msgs::msg::SolidPrimitive sphere;
+  sphere.type = shape_msgs::msg::SolidPrimitive::SPHERE;
+  sphere.dimensions = {0.001};
+  pc.constraint_region.primitives = {sphere};
+  pc.constraint_region.primitive_poses = {target};
+  moveit_msgs::msg::OrientationConstraint oc;
+  oc.header.frame_id = "world";
+  oc.link_name = "link_6";
+  oc.orientation = target.orientation;
+  oc.absolute_x_axis_tolerance = oc.absolute_y_axis_tolerance = oc.absolute_z_axis_tolerance = 0.01;
+  oc.weight = 1.0;
+  moveit_msgs::msg::Constraints c;
+  c.position_constraints = {pc};
+  c.orientation_constraints = {oc};
+  char label[48];
+  std::snprintf(label, sizeof(label), "TCP %c %+.0f mm", "XYZ"[axis], step * 1000);
+  moveGoal(c, label, "pilz_industrial_motion_planner", "LIN", vel);
 }
 
 void GuiNode::voiceListen(bool on)

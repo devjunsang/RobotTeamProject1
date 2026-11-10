@@ -8,9 +8,11 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QShortcut>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 #include <cmath>
+#include <functional>
 
 #include "aris3_gui_cpp/theme.hpp"
 
@@ -62,18 +64,16 @@ MainWindow::MainWindow(std::shared_ptr<GuiNode> node, SimBackend * backend, QWid
   top->addWidget(buildCameraPanel(), 3);
   auto * side = new QVBoxLayout;
   side->setSpacing(10);
-  side->addWidget(buildPlaceholder(QStringLiteral("WORKSPACE  작업 공간"),
-    QStringLiteral("위에서 본 2D 지도 - 다음 단계(M2)")), 1);
-  side->addWidget(buildQueuePanel(), 4);
+  // 작업 공간 지도는 작게, 작업 큐·단계 표(7 줄)가 다 보이게
+  side->addWidget(buildWorkspacePanel(), 2);
+  side->addWidget(buildQueuePanel(), 5);
   top->addLayout(side, 2);
   right->addLayout(top, 3);
   auto * bottom = new QHBoxLayout;
   bottom->setSpacing(10);
   bottom->addWidget(buildLogPanel(), 3);
   bottom->addWidget(buildVoicePanel(), 2);
-  bottom->addWidget(buildPlaceholder(QStringLiteral("MANUAL JOG  수동 조작"),
-    QStringLiteral("조작 허용 · TCP·관절 조그 · 그리퍼 · 홈 - 다음 단계(M2)\n"
-                   "그 전에는 aris3_gui(PyQt)의 수동 조작을 쓰세요.")), 2);
+  bottom->addWidget(buildJogPanel(), 2);
   right->addLayout(bottom, 2);
   body->addLayout(right, 1);
   root->addLayout(body, 1);
@@ -132,6 +132,7 @@ QWidget * MainWindow::buildHeader()
     };
   btn_connect_ = btn(QStringLiteral("Connect"), &MainWindow::onConnect);
   btn(QStringLiteral("Disconnect"), &MainWindow::onDisconnect);
+  btn_home_ = btn(QStringLiteral("⌂ Home"), &MainWindow::onHome);
   btn_start_ = btn(QStringLiteral("▶ Start Task"), &MainWindow::onStartQueue, "gold");
   btn(QStringLiteral("■ Stop"), &MainWindow::onStop);
   auto * estop = btn(QStringLiteral("⚠ STOP · Space / Esc"), &MainWindow::onStop, "estop");
@@ -197,6 +198,10 @@ QWidget * MainWindow::buildLeftColumn()
   lbl_joints_ = new QLabel(QStringLiteral("—"));
   lbl_joints_->setFont(QFont("DejaVu Sans Mono", 9));
   rob->body()->addWidget(lbl_joints_);
+  rob->body()->addWidget(new QLabel(QStringLiteral("<span style='color:#9aa7b4'>손끝 TCP [m, deg] (world)</span>")));
+  lbl_tcp_ = new QLabel(QStringLiteral("—"));
+  lbl_tcp_->setFont(QFont("DejaVu Sans Mono", 9));
+  rob->body()->addWidget(lbl_tcp_);
   col->addWidget(rob);
 
   auto * grip = new Panel(QStringLiteral("GRIPPER  그리퍼"));
@@ -206,6 +211,14 @@ QWidget * MainWindow::buildLeftColumn()
   bar_grip_->setFormat(QStringLiteral("닫힘 %p%"));
   grip->body()->addWidget(lbl_grip_);
   grip->body()->addWidget(bar_grip_);
+  auto * gr = new QHBoxLayout;
+  btn_gopen_ = nofocus(new QPushButton(QStringLiteral("열기")));
+  btn_gclose_ = nofocus(new QPushButton(QStringLiteral("닫기 (잡기)")));
+  connect(btn_gopen_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {node_->gripper(0);}});
+  connect(btn_gclose_, &QPushButton::clicked, this, [this]() {if (armOk("그리퍼")) {node_->gripper(1);}});
+  gr->addWidget(btn_gopen_);
+  gr->addWidget(btn_gclose_);
+  grip->body()->addLayout(gr);
   col->addWidget(grip);
 
   auto * cam = new Panel(QStringLiteral("CAMERA  카메라 정보"));
@@ -230,6 +243,7 @@ QWidget * MainWindow::buildCameraPanel()
   top->addWidget(chk_detect_);
   p->body()->addLayout(top);
   camera_ = new CameraView;
+  camera_->onWorldClick = [this](double x, double y) {onCameraClick(x, y);};
   p->body()->addWidget(camera_, 1);
   lbl_cam_info_ = new QLabel(QStringLiteral("—"));
   lbl_cam_info_->setStyleSheet("color:#9aa7b4; font-family:'DejaVu Sans Mono'; font-size:9pt");
@@ -264,6 +278,20 @@ QWidget * MainWindow::buildQueuePanel()
   add->addWidget(b_add);
   add->addWidget(b_del);
   p->body()->addLayout(add);
+  // 화면에서 고르기: 카메라 클릭 (큐브 = 이거, 빈 곳 = 저기)
+  auto * pick = new QHBoxLayout;
+  lbl_sel_ = new QLabel(QStringLiteral("화면 선택: 카메라에서 큐브 클릭(이거) · 빈 곳 클릭(저기)"));
+  lbl_sel_->setStyleSheet("color:#5ff4ff");
+  lbl_sel_->setWordWrap(true);
+  btn_sel_run_ = nofocus(new QPushButton(QStringLiteral("▶ 선택한 물체를 그 자리로")));
+  btn_sel_run_->setObjectName("gold");
+  connect(btn_sel_run_, &QPushButton::clicked, this, &MainWindow::runSelection);
+  auto * b_clear = nofocus(new QPushButton(QStringLiteral("선택 해제")));
+  connect(b_clear, &QPushButton::clicked, this, &MainWindow::clearSelection);
+  pick->addWidget(lbl_sel_, 1);
+  pick->addWidget(btn_sel_run_);
+  pick->addWidget(b_clear);
+  p->body()->addLayout(pick);
   lst_queue_ = new QListWidget;
   lst_queue_->setMaximumHeight(52);
   p->body()->addWidget(lst_queue_);
@@ -276,6 +304,7 @@ QWidget * MainWindow::buildQueuePanel()
   tbl_stage_->setEditTriggers(QAbstractItemView::NoEditTriggers);
   tbl_stage_->setFocusPolicy(Qt::NoFocus);
   tbl_stage_->verticalHeader()->setDefaultSectionSize(22);
+  tbl_stage_->setMinimumHeight(22 * static_cast<int>(names.size()) + 28);   // 단계 7 줄이 항상 다 보이게
   for (int i = 0; i < static_cast<int>(names.size()); ++i) {
     tbl_stage_->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(names[i]) + "  " + kStageKo.at(names[i])));
     tbl_stage_->setItem(i, 1, new QTableWidgetItem(QStringLiteral("대기")));
@@ -368,14 +397,90 @@ QWidget * MainWindow::buildVoicePanel()
   return p;
 }
 
-QWidget * MainWindow::buildPlaceholder(const QString & title, const QString & text)
+QWidget * MainWindow::buildWorkspacePanel()
 {
-  auto * p = new Panel(title);
-  auto * l = new QLabel(text);
-  l->setWordWrap(true);
-  l->setAlignment(Qt::AlignCenter);
-  l->setStyleSheet("color:#9aa7b4");
-  p->body()->addWidget(l, 1);
+  auto * p = new Panel(QStringLiteral("WORKSPACE  작업 공간"));
+  workspace_ = new WorkspaceView;
+  p->body()->addWidget(workspace_, 1);
+  return p;
+}
+
+// ======================================================================== 수동 조작
+QWidget * MainWindow::buildJogPanel()
+{
+  auto * p = new Panel(QStringLiteral("MANUAL JOG  수동 조작"));
+  chk_arm_ = nofocus(new QCheckBox(QStringLiteral("조작 허용 (주변이 비었을 때만 · 2분 뒤 잠김)")));
+  chk_arm_->setStyleSheet("color:#f5c542; font-weight:600");
+  connect(chk_arm_, &QCheckBox::toggled, this, [this](bool on) {
+      last_cmd_ = std::chrono::steady_clock::now();
+      node_->log("INFO", on ? "조작 허용 켬" : "조작 잠금");
+    });
+  p->body()->addWidget(chk_arm_);
+
+  auto * tabs = new QTabWidget;
+  tabs->setFocusPolicy(Qt::NoFocus);
+  auto jogBtn = [this](const QString & text, std::function<void()> fn) {
+      auto * b = nofocus(new QPushButton(text));
+      b->setMinimumHeight(32);
+      connect(b, &QPushButton::clicked, this, fn);
+      jog_buttons_.push_back(b);
+      return b;
+    };
+  // TCP: 위 = +X (로봇 정면), 왼쪽 = +Y (작업 공간 지도와 같은 방향), 오른쪽 열 = Z
+  auto * tcp = new QWidget;
+  auto * g = new QGridLayout(tcp);
+  struct Tcp {int r, c; const char * text; int axis, sign;};
+  for (const Tcp & t : {Tcp{0, 1, "+X", 0, 1}, Tcp{2, 1, "−X", 0, -1}, Tcp{1, 0, "+Y", 1, 1}, Tcp{1, 2, "−Y", 1, -1},
+      Tcp{0, 3, "+Z", 2, 1}, Tcp{2, 3, "−Z", 2, -1}})
+  {
+    g->addWidget(jogBtn(QString::fromUtf8(t.text), [this, t]() {
+        if (armOk("TCP 이동")) {
+          node_->jogTcp(t.axis, t.sign * cmb_step_->currentData().toDouble(), sld_speed_->value() / 100.0);
+        }
+      }), t.r, t.c);
+  }
+  g->addWidget(jogBtn(QStringLiteral("⌂"), [this]() {onHome();}), 1, 1);
+  tabs->addTab(tcp, QStringLiteral("TCP 이동"));
+  // 관절: J1~J6 마다 − / +
+  auto * jt = new QWidget;
+  auto * gj = new QGridLayout(jt);
+  for (int i = 0; i < 6; ++i) {
+    gj->addWidget(new QLabel(QStringLiteral("J%1").arg(i + 1)), i / 2, (i % 2) * 3);
+    for (int k = 0; k < 2; ++k) {
+      const int sign = k == 0 ? -1 : 1;
+      auto * b = jogBtn(sign < 0 ? QStringLiteral("−") : QStringLiteral("+"), [this, i, sign]() {
+          if (armOk("관절 이동")) {
+            node_->jogJoint(i, sign * cmb_step_->currentData().toDouble(), sld_speed_->value() / 100.0);
+          }
+        });
+      b->setFixedWidth(40);
+      gj->addWidget(b, i / 2, (i % 2) * 3 + 1 + k);
+    }
+  }
+  tabs->addTab(jt, QStringLiteral("Joint 이동"));
+  p->body()->addWidget(tabs);
+
+  auto * row = new QHBoxLayout;
+  cmb_step_ = nofocus(new QComboBox);
+  for (int s : {1, 5, 10, 20}) {cmb_step_->addItem(QStringLiteral("%1 mm / °").arg(s), s);}
+  cmb_step_->setCurrentIndex(2);
+  sld_speed_ = new QSlider(Qt::Horizontal);
+  sld_speed_->setRange(5, 100);
+  sld_speed_->setValue(30);
+  sld_speed_->setFocusPolicy(Qt::NoFocus);
+  lbl_speed_ = new QLabel(QStringLiteral("30 %"));
+  connect(sld_speed_, &QSlider::valueChanged, this, [this](int v) {lbl_speed_->setText(QStringLiteral("%1 %").arg(v));});
+  row->addWidget(new QLabel(QStringLiteral("스텝")));
+  row->addWidget(cmb_step_);
+  row->addWidget(new QLabel(QStringLiteral("속도")));
+  row->addWidget(sld_speed_, 1);
+  row->addWidget(lbl_speed_);
+  p->body()->addLayout(row);
+  lbl_jog_reason_ = new QLabel;
+  lbl_jog_reason_->setWordWrap(true);
+  lbl_jog_reason_->setStyleSheet("color:#f2a33a");
+  p->body()->addWidget(lbl_jog_reason_);
+  p->body()->addStretch(1);
   return p;
 }
 
@@ -396,11 +501,105 @@ void MainWindow::onDisconnect()
   if (ask(QStringLiteral("Disconnect"),
       QStringLiteral("시뮬레이션(Gazebo·MoveIt·Task Manager)을 종료합니다.\n\n계속할까요?")))
   {
+    chk_arm_->setChecked(false);
     queue_.clear();
     lst_queue_->clear();
     queue_running_ = false;
     backend_->disconnectSim();
   }
+}
+
+void MainWindow::onHome()
+{
+  if (armOk("홈 이동")) {node_->home(sld_speed_->value() / 100.0);}
+}
+
+QString MainWindow::whyNotReady()
+{
+  const auto f = node_->statusFlags();
+  if (!f.joint_states) {return QStringLiteral("관절 상태가 들어오지 않음 (Connect 로 시뮬레이션 시작)");}
+  if (!f.moveit) {return QStringLiteral("MoveIt 준비 중");}
+  if (node_->taskRunning()) {return QStringLiteral("작업 실행 중");}
+  if (node_->manualBusy()) {return QStringLiteral("이전 수동 이동 진행 중");}
+  return QString();
+}
+
+bool MainWindow::armOk(const std::string & what)
+{
+  if (!chk_arm_->isChecked()) {
+    node_->log("WARN", what + ": 「조작 허용」 을 먼저 체크하세요");
+    return false;
+  }
+  const QString why = whyNotReady();
+  if (!why.isEmpty()) {
+    node_->log("WARN", what + ": " + why.toStdString());
+    return false;
+  }
+  last_cmd_ = std::chrono::steady_clock::now();
+  return true;
+}
+
+// ---- 화면 선택 (카메라 클릭)
+void MainWindow::onCameraClick(double x, double y)
+{
+  // 가장 가까운 물체가 4 cm 안이면 그 물체(이거), 아니면 그 자리를 놓을 곳(저기)으로. 순서는 상관없다.
+  const auto objs = node_->snapshot().objects;
+  const aris3_interfaces::msg::DetectedObject * near = nullptr;
+  double best = 1e9;
+  for (const auto & o : objs) {
+    if (o.id.empty()) {continue;}
+    const double d = std::hypot(o.pose.pose.position.x - x, o.pose.pose.position.y - y);
+    if (d < best) {best = d; near = &o;}
+  }
+  char buf[96];
+  if (near && best < 0.04) {
+    sel_id_ = near->id;
+    node_->log("INFO", "선택(이거): 물체 " + sel_id_ + (sel_place_ ? "" : "  → 놓을 빈 자리를 클릭하세요"));
+  } else {
+    sel_place_ = std::array<double, 2>{x, y};
+    std::snprintf(buf, sizeof(buf), "선택(저기): 놓을 자리 (%.3f, %.3f)", x, y);
+    node_->log("INFO", std::string(buf) + (sel_id_.empty() ? "  → 옮길 큐브를 클릭하거나 「아리스 파란 큐브 저기로」" :
+      "  → 「▶ 선택한 물체를 그 자리로」 또는 「아리스 이거 저기로 옮겨줘」"));
+  }
+  updateSelectionLabel();
+}
+
+void MainWindow::updateSelectionLabel()
+{
+  const QString place = sel_place_ ? QStringLiteral("(%1, %2)").arg((*sel_place_)[0], 0, 'f', 3).arg((*sel_place_)[1], 0, 'f', 3) :
+    QStringLiteral("—");
+  lbl_sel_->setText(QStringLiteral("화면 선택: 물체 %1  →  놓을 자리 %2")
+    .arg(sel_id_.empty() ? QStringLiteral("—") : QString::fromStdString(sel_id_), place));
+}
+
+void MainWindow::clearSelection()
+{
+  sel_id_.clear();
+  sel_place_.reset();
+  updateSelectionLabel();
+}
+
+void MainWindow::runSelection()
+{
+  if (sel_id_.empty() || !sel_place_) {return;}
+  QueuedTask t;
+  t.target_id = sel_id_;
+  t.place = sel_place_;
+  t.dry = chk_dry_->isChecked();
+  queue_.insert(queue_.begin(), t);
+  addQueueItem(t, true);
+  clearSelection();
+  queue_running_ = true;
+  nextTask();
+}
+
+void MainWindow::addQueueItem(const QueuedTask & t, bool front)
+{
+  const QString what = t.target_id.empty() ? ko(t.color) + " 큐브" : QString::fromStdString(t.target_id);
+  const QString where = t.place ? QStringLiteral("(%1, %2)").arg((*t.place)[0], 0, 'f', 2).arg((*t.place)[1], 0, 'f', 2) :
+    QStringLiteral("구역 ") + QString::fromStdString(t.zone);
+  const QString text = what + " → " + where + (t.dry ? " (계획만)" : "");
+  if (front) {lst_queue_->insertItem(0, text);} else {lst_queue_->addItem(text);}
 }
 
 void MainWindow::onStop()
@@ -413,16 +612,22 @@ void MainWindow::onStop()
 
 void MainWindow::onQueueAdd()
 {
-  QueuedTask t{cmb_color_->currentData().toString().toStdString(), cmb_zone_->currentData().toString().toStdString(),
-    chk_dry_->isChecked()};
+  QueuedTask t;
+  t.color = cmb_color_->currentData().toString().toStdString();
+  t.zone = cmb_zone_->currentData().toString().toStdString();
+  t.dry = chk_dry_->isChecked();
   queue_.push_back(t);
-  lst_queue_->addItem(ko(t.color) + " 큐브 → 구역 " + QString::fromStdString(t.zone) + (t.dry ? " (계획만)" : ""));
+  addQueueItem(t, false);
 }
 
 void MainWindow::queueTask(const std::string & color, const std::string & zone, bool dry)
 {
-  queue_.push_back(QueuedTask{color, zone, dry});
-  lst_queue_->addItem(ko(color) + " 큐브 → 구역 " + QString::fromStdString(zone) + (dry ? " (계획만)" : ""));
+  QueuedTask t;
+  t.color = color;
+  t.zone = zone;
+  t.dry = dry;
+  queue_.push_back(t);
+  addQueueItem(t, false);
 }
 
 void MainWindow::onStartQueue()
@@ -443,7 +648,12 @@ void MainWindow::nextTask()
   const QueuedTask t = queue_.front();
   queue_.erase(queue_.begin());
   delete lst_queue_->takeItem(0);
-  if (!node_->sendTask(t.color, t.zone, t.dry)) {queue_running_ = false;}
+  current_color_ = t.color;
+  if (!node_->sendTask(t.target_id.empty() ? t.color : "", t.place ? "" : t.zone, t.dry, t.target_id,
+    t.place.has_value(), t.place ? (*t.place)[0] : 0.0, t.place ? (*t.place)[1] : 0.0))
+  {
+    queue_running_ = false;
+  }
 }
 
 void MainWindow::onVoiceRun(bool automatic)
@@ -453,19 +663,42 @@ void MainWindow::onVoiceRun(bool automatic)
     node_->log("WARN", "실행할 수 있는 음성 명령이 없음");
     return;
   }
-  if (v->action != "pick") {
-    // 「내려놔」·「홈」·「이거/저기」 는 다음 단계 (aris3_gui 에는 있음)
-    node_->log("WARN", "ARIS M1 은 「<색> 큐브 집어줘」 만 실행합니다 (그 밖의 명령은 aris3_gui 사용)");
+  if (v->action == "place") {
+    node_->log("WARN", "「내려놔」(집은 자리에 놓기)는 Task Manager 의 pick/place 분리 후 지원 예정 - "
+      "지금은 집기 명령이 놓기까지 한 번에 수행합니다");
     return;
   }
-  if (v->refers_selected_object || v->refers_selected_place) {
-    node_->log("WARN", "「이거/저기」(화면 선택)는 ARIS 다음 단계에서 지원");
+  if (v->action == "home") {                         // 「아리스 홈으로」: ⌂ Home 버튼과 같음
+    node_->log("INFO", std::string("음성 명령 ") + (automatic ? "자동 " : "") + "실행: 홈으로 돌아가기");
+    onHome();
     return;
   }
-  const std::string zone = cmb_voice_zone_->currentData().toString().toStdString();
-  node_->log("INFO", std::string("음성 명령 ") + (automatic ? "자동 " : "") + "실행: " + v->color + " -> 구역 " + zone);
-  queue_.insert(queue_.begin(), QueuedTask{v->color, zone, false});
-  lst_queue_->insertItem(0, ko(v->color) + " 큐브 → 구역 " + QString::fromStdString(zone));
+  QueuedTask t;
+  // 무엇을: 「이거」 = 화면에서 고른 큐브, 아니면 말한 색
+  if (v->refers_selected_object && v->color.empty()) {
+    if (sel_id_.empty()) {
+      node_->log("WARN", "「이거」 가 무엇인지 모름 - 먼저 카메라 화면에서 큐브를 클릭하세요");
+      return;
+    }
+    t.target_id = sel_id_;
+  } else {
+    t.color = v->color;
+  }
+  // 어디에: 「저기」 = 화면에서 고른 자리, 아니면 구역 선택 상자
+  if (v->refers_selected_place) {
+    if (!sel_place_) {
+      node_->log("WARN", "「저기」 가 어디인지 모름 - 먼저 카메라 화면에서 탁자의 빈 곳을 클릭하세요");
+      return;
+    }
+    t.place = sel_place_;
+  } else {
+    t.zone = cmb_voice_zone_->currentData().toString().toStdString();
+  }
+  node_->log("INFO", std::string("음성 명령 ") + (automatic ? "자동 " : "") + "실행: " +
+    (t.target_id.empty() ? t.color : t.target_id) + " -> " + (t.place ? "고른 자리" : "구역 " + t.zone));
+  queue_.insert(queue_.begin(), t);
+  addQueueItem(t, true);
+  clearSelection();
   queue_running_ = true;
   nextTask();
 }
@@ -474,7 +707,11 @@ void MainWindow::onVoiceRun(bool automatic)
 void MainWindow::refreshCamera()
 {
   const auto s = node_->snapshot();
-  camera_->setFrame(s.image, s.image_seq, s.px_objects);
+  std::optional<PinholeCamera> cam;
+  PinholeCamera c;
+  if (node_->cameraTransform(c.t, c.q)) {cam = c;}    // 시뮬레이션 카메라 (실물 카메라는 TF 없음 -> 픽셀만)
+  camera_->setSelection(sel_id_, sel_place_, s.task_running ? current_color_ : std::string());
+  camera_->setFrame(s.image, s.image_seq, s.objects, s.px_objects, cam);
 }
 
 void MainWindow::refresh()
@@ -493,9 +730,23 @@ void MainWindow::refresh()
   }
   was_task_running_ = s.task_running;
 
-  // ---- 버튼
+  // ---- 버튼·수동 조작 (조작 허용은 2분 동안 명령이 없으면 다시 잠근다)
   btn_connect_->setEnabled(!backend_->connected());
   btn_start_->setEnabled(f.task_manager && !s.task_running);
+  if (chk_arm_->isChecked() &&
+    std::chrono::steady_clock::now() - last_cmd_ > std::chrono::seconds(120))
+  {
+    chk_arm_->setChecked(false);
+    node_->log("INFO", "120초 동안 명령이 없어 조작을 잠갔습니다");
+  }
+  QString why = whyNotReady();
+  if (!chk_arm_->isChecked() && why.isEmpty()) {why = QStringLiteral("「조작 허용」 이 꺼져 있음");}
+  lbl_jog_reason_->setText(why.isEmpty() ? QString() : QStringLiteral("이동 불가: ") + why);
+  for (auto * b : jog_buttons_) {b->setEnabled(why.isEmpty());}
+  btn_home_->setEnabled(why.isEmpty());
+  btn_gopen_->setEnabled(why.isEmpty() && f.gripper);
+  btn_gclose_->setEnabled(why.isEmpty() && f.gripper);
+  btn_sel_run_->setEnabled(!sel_id_.empty() && sel_place_ && f.task_manager && !s.task_running);
 
   // ---- 시스템 상태
   sys_["conn"]->setText(theme::dot(backend_->connected(), backend_->describe(), true));
@@ -531,6 +782,14 @@ void MainWindow::refresh()
     if (i == 3) {j += "\n";}
   }
   lbl_joints_->setText(s.joints.empty() ? QStringLiteral("—") : j);
+  Vec3 tcp{}, rpy{};
+  const bool has_tcp = node_->tcpPose(tcp, rpy);
+  lbl_tcp_->setText(has_tcp ? QStringLiteral("X %1  Y %2  Z %3\nR %4  P %5  Y %6")
+    .arg(tcp[0], 6, 'f', 3).arg(tcp[1], 6, 'f', 3).arg(tcp[2], 6, 'f', 3)
+    .arg(rpy[0] * 180 / M_PI, 6, 'f', 1).arg(rpy[1] * 180 / M_PI, 6, 'f', 1).arg(rpy[2] * 180 / M_PI, 6, 'f', 1) :
+    QStringLiteral("—"));
+  workspace_->setState(s.objects, has_tcp ? std::optional<std::array<double, 2>>(std::array<double, 2>{tcp[0], tcp[1]}) :
+    std::nullopt, s.task_running ? current_color_ : std::string(), sel_place_);
 
   // ---- 그리퍼 (gripper_rh_r1 0 ~ 1.1 rad)
   auto g = s.joints.find("gripper_rh_r1");
@@ -614,6 +873,93 @@ void MainWindow::refresh()
       .arg(color, QString::fromStdString(l.level), QString::fromStdString(l.time), QString::fromStdString(l.node),
       QString::fromStdString(l.text).toHtmlEscaped()));
   }
+}
+
+// ======================================================================== 시험용 (--selftest)
+void MainWindow::runSelftest(std::function<void(bool)> done)
+{
+  // 1 초마다 다음 단계로: 각 이동은 로그에 「<이름>: 완료」 / 「작업 성공」 이 나오면 통과, 「실패」 면 실패.
+  auto logHas = [this](const std::string & a, const std::string & b) -> int {
+      for (const auto & l : node_->snapshot().logs) {
+        if (l.seq <= selftest_log_mark_) {continue;}
+        if (l.text.find(a) != std::string::npos && l.text.find(b) != std::string::npos) {return 1;}
+        if (l.text.find(a) != std::string::npos && l.text.find("실패") != std::string::npos) {return -1;}
+      }
+      return 0;
+    };
+  auto report = [this](const std::string & name, bool ok) {
+      selftest_ok_ &= ok;
+      std::printf("SELFTEST %s %s\n", ok ? "PASS" : "FAIL", name.c_str());
+      std::fflush(stdout);
+    };
+  auto mark = [this]() {
+      const auto logs = node_->snapshot().logs;
+      selftest_log_mark_ = logs.empty() ? 0 : logs.back().seq;
+      selftest_t0_ = std::chrono::steady_clock::now();
+    };
+  auto elapsed = [this]() {
+      return std::chrono::duration<double>(std::chrono::steady_clock::now() - selftest_t0_).count();
+    };
+  // 이동 하나를 기다리는 단계: label 의 완료/실패가 로그에 나올 때까지 (최대 60 초)
+  auto waitMove = [=](const std::string & label, const std::string & ok_word) {
+      const int r = logHas(label, ok_word);
+      if (r == 0 && elapsed() < 60) {return false;}
+      report(label, r == 1);
+      return true;
+    };
+  connect(&selftest_timer_, &QTimer::timeout, this, [=]() {
+      switch (selftest_step_) {
+        case 0:   // 준비: MoveIt·관절 상태·Task Manager
+          if (!whyNotReady().isEmpty() && whyNotReady() != QStringLiteral("이전 수동 이동 진행 중")) {return;}
+          if (!node_->statusFlags().task_manager) {return;}
+          chk_arm_->setChecked(true);
+          report("조작 허용", chk_arm_->isChecked());
+          mark();
+          onHome();
+          selftest_step_ = 1;
+          return;
+        case 1:
+          if (!waitMove("홈 자세", ": 완료")) {return;}
+          mark();
+          node_->jogTcp(2, 20, 0.3);                  // armOk 와 같은 검사는 위에서 통과 (조작 허용·준비)
+          selftest_step_ = 2;
+          return;
+        case 2:
+          if (!waitMove("TCP Z +20 mm", ": 완료")) {return;}
+          mark();
+          node_->jogJoint(0, 10, 0.3);
+          selftest_step_ = 3;
+          return;
+        case 3:
+          if (!waitMove("J1 +10°", ": 완료")) {return;}
+          {
+            // 화면 선택: 파랑 큐브 위치를 클릭한 것처럼, 그다음 빈 곳 (0.45, 0.25)
+            const auto objs = node_->snapshot().objects;
+            bool found = false;
+            for (const auto & o : objs) {
+              if (o.id == "blue_cube") {
+                onCameraClick(o.pose.pose.position.x, o.pose.pose.position.y);
+                found = true;
+              }
+            }
+            onCameraClick(0.45, 0.25);
+            report("화면 선택 (이거 = blue_cube, 저기 = (0.45, 0.25))", found && sel_id_ == "blue_cube" && sel_place_);
+            mark();
+            runSelection();
+          }
+          selftest_step_ = 4;
+          return;
+        case 4: {
+            const int r = logHas("작업 ", "성공");
+            if (r == 0 && elapsed() < 120) {return;}
+            report("선택한 물체를 그 자리로 (작업)", r == 1);
+            selftest_timer_.stop();
+            done(selftest_ok_);
+            return;
+          }
+      }
+    });
+  selftest_timer_.start(1000);
 }
 
 void MainWindow::closeEvent(QCloseEvent * ev)

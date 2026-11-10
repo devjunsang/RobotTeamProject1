@@ -26,11 +26,13 @@ ros2 run aris3_gui_cpp aris --connect --task blue:A --screenshot /tmp/aris.png -
 
 ## 단계
 
-- **M1 (지금)**: 시스템 상태, 카메라 영상(원본·JPEG), 로그, 작업 큐·단계, 음성 「<색> 큐브 집어줘」, Connect·정지.
-- **M2**: 수동 조작(MoveIt), 카메라 검출 TF 투영·클릭 선택(이거/저기), 작업 공간 2D.
+- **M1**: 시스템 상태, 카메라 영상(원본·JPEG), 로그, 작업 큐·단계, 음성(음성 명령 모드 + 「아리스」), Connect·정지.
+- **M2**: 수동 조작(조작 허용 2분 잠금, TCP·관절 조그, 그리퍼, 홈 - MoveIt), 손끝 TCP 표시, 카메라 검출 TF 투영,
+  클릭 선택(이거/저기)과 「선택한 물체를 그 자리로」, 음성 「이거/저기/홈」, 작업 공간 2D.
+  시험: `ros2 run aris3_gui_cpp aris --selftest` (시뮬레이션이 떠 있을 때, 조작 허용·홈·조그·화면 선택 작업 자동 확인)
 - **M3**: 실물 모드 (`aris3_real_bridge`), 실물 집기·보정, 손짓 - `aris3_real_sim.launch.py` 로 시험.
 
-M2·M3 전에는 그 기능을 `aris3_gui`(PyQt)에서 쓴다.
+M3 전에는 실물 모드를 `aris3_gui`(PyQt)에서 쓴다.
 
 ## 안전
 

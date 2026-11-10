@@ -1,6 +1,8 @@
 // ARIS 순수 로직 단위 시험 (Qt·ROS 없이).
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include "aris3_gui_cpp/gui_logic.hpp"
 
 using aris::Clock;
@@ -70,4 +72,38 @@ TEST(StageTracker, FinishOk)
   s.feedback("VERIFY");
   s.finish(true, "");
   EXPECT_EQ(s.state("VERIFY"), StageState::DONE);
+}
+
+// 아래를 보는 카메라 (world (0, 0, 2) 에서 -z 방향): 영상 가운데 = 바로 아래, project 와 unproject 가 서로 반대.
+TEST(PinholeCamera, ProjectUnprojectRoundTrip)
+{
+  aris::PinholeCamera cam;
+  // world -> 광학: x 축으로 180° 회전 (z 가 아래를 봄) 후 카메라 높이 2 m 만큼 앞(광축)으로
+  cam.q = {1.0, 0.0, 0.0, 0.0};
+  cam.t = {0.0, 0.0, 2.0};
+  cam.width = 640;
+  cam.height = 480;
+  cam.hfov = 1.4;
+  const auto c = cam.project({0.0, 0.0, 0.0});
+  ASSERT_TRUE(c.has_value());
+  EXPECT_NEAR((*c)[0], 320.0, 1e-9);
+  EXPECT_NEAR((*c)[1], 240.0, 1e-9);
+  EXPECT_NEAR((*c)[2], 2.0, 1e-9);
+  const auto p = cam.project({0.3, -0.2, 0.75});
+  ASSERT_TRUE(p.has_value());
+  const auto back = cam.unproject((*p)[0], (*p)[1], 0.75);
+  ASSERT_TRUE(back.has_value());
+  EXPECT_NEAR((*back)[0], 0.3, 1e-9);
+  EXPECT_NEAR((*back)[1], -0.2, 1e-9);
+  EXPECT_FALSE(cam.project({0.0, 0.0, 3.0}).has_value());     // 카메라 뒤(위)는 없음
+}
+
+// 쿼터니언 회전: z 축 90° 회전이면 x 축이 y 축으로.
+TEST(PinholeCamera, QuatApplyRotatesVector)
+{
+  const double s = std::sqrt(0.5);
+  const auto r = aris::quatApply({0.0, 0.0, s, s}, {1.0, 0.0, 0.0});
+  EXPECT_NEAR(r[0], 0.0, 1e-12);
+  EXPECT_NEAR(r[1], 1.0, 1e-12);
+  EXPECT_NEAR(r[2], 0.0, 1e-12);
 }

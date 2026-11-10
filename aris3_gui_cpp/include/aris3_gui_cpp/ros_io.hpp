@@ -30,6 +30,8 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace aris
 {
@@ -56,6 +58,8 @@ struct Snapshot
   std::optional<std::pair<bool, std::string>> last_result;  // (성공, 문장)
   StageTracker stages;
   bool task_running{false};
+  bool manual_busy{false};                                  // 수동 이동(MoveIt) 진행 중
+  std::string image_frame;                                  // 영상의 frame_id (카메라 TF 찾기용)
   std::vector<LogLine> logs;                                // 최근 400 줄
   std::string gripper_msg;
 };
@@ -95,6 +99,18 @@ public:
   // 그리퍼 (시뮬레이션 /aris3/gripper/command): 0 열기, 1 닫기
   void gripper(uint8_t command);
 
+  // ---- TF
+  // world -> 카메라 광학 좌표 변환 (영상 frame_id 기준). 없으면 false
+  bool cameraTransform(Vec3 & t, Quat & q);
+  // 손끝(TCP) world 위치 [m] 와 RPY [rad]: link_6 + 공구 z 방향 tcp_offset. 없으면 false
+  bool tcpPose(Vec3 & tcp, Vec3 & rpy, double tcp_offset = 0.105);
+
+  // ---- 수동 조작 (MoveIt /move_action) - 한 번에 하나, 작업 중에는 거부 (aris3_gui ros_io 와 같은 제한)
+  bool manualBusy();
+  void home(double vel);                                    // 홈(관찰) 자세 [0, 0, 90, 0, 90, 0]°
+  void jogJoint(int index, double step_deg, double vel);    // 관절 하나를 step 만큼 (최대 10°)
+  void jogTcp(int axis, double step_mm, double vel);        // link_6 를 world X/Y/Z 로 직선 (최대 20 mm, Pilz LIN)
+
   // 음성: 음성 명령 모드 ON/OFF (켜져 있는 동안 음성 노드가 계속 듣고 「아리스 ...」 만 명령으로 냄) / 문장 입력
   void voiceListen(bool on);
   void voiceActive(bool on);
@@ -105,6 +121,9 @@ private:
   void onImage(const sensor_msgs::msg::Image::SharedPtr m);
   void onCompressed(const sensor_msgs::msg::CompressedImage::SharedPtr m);
   void onResult(const GoalHandle::WrappedResult & r);
+  void moveGoal(const moveit_msgs::msg::Constraints & c, const std::string & label,
+    const std::string & pipeline, const std::string & planner, double vel);
+  moveit_msgs::msg::Constraints jointConstraints(const std::vector<double> & target_rad);
 
   std::mutex mtx_;
   Snapshot s_;
@@ -119,6 +138,8 @@ private:
   rclcpp::Client<aris3_interfaces::srv::GripperCommand>::SharedPtr gripper_client_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_listen_, pub_active_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_text_, pub_traj_event_;
+  std::shared_ptr<tf2_ros::Buffer> tf_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
 
 }  // namespace aris

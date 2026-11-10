@@ -1,11 +1,14 @@
-// ARIS 메인 창 (M1: 시뮬레이션 모드). 배치는 목업과 aris3_gui 와 같다:
-//   ┌ 상단: 제목 · [가운데 ARIS 로고] · Connect · Disconnect · Start Task · Stop · 정지 ───────────┐
-//   │ 시스템 상태  │ 카메라 Top View                 │ 작업 공간 2D (M2)            │
-//   │ 로봇 상태    │                                  │ 작업 큐 / 단계 진행          │
+// ARIS 메인 창 (M2: 시뮬레이션 모드). 배치는 목업과 aris3_gui 와 같다:
+//   ┌ 상단: 제목 · [가운데 ARIS 로고] · Connect · Disconnect · Home · Start Task · Stop · 정지 ─────┐
+//   │ 시스템 상태  │ 카메라 Top View (클릭: 이거/저기) │ 작업 공간 2D                 │
+//   │ 로봇 상태    │                                  │ 작업 큐 / 화면 선택 / 단계   │
 //   │ 그리퍼       ├──────────────────────────────────┼──────────────┬───────────────┤
-//   │ 카메라 정보  │ 로그                             │ 음성 명령    │ 수동 조작 (M2) │
-// 안전 규칙 (aris3_gui 와 같음): 정지는 언제나 동작 (버튼, Space, Esc) - 화면의 정지는 인증된 비상정지 장치를
-// 대신하지 않는다. 음성 명령은 해석 결과를 보여 주고, 「자동 실행」 이 아니면 사용자가 「실행」 을 눌러야 한다.
+//   │ 카메라 정보  │ 로그                             │ 음성 명령    │ 수동 조작      │
+// 안전 규칙 (aris3_gui 와 같음):
+//   - 수동 조작·그리퍼·홈은 「조작 허용」 을 체크해야 동작하고, 2분 동안 명령이 없으면 다시 잠긴다.
+//   - 정지는 언제나 동작 (버튼, Space, Esc). 화면의 정지는 인증된 비상정지 장치를 대신하지 않는다.
+//   - 작업 실행 중에는 수동 조작을 받지 않는다.
+//   - 음성 명령은 해석 결과를 보여 주고, 「자동 실행」 이 아니면 사용자가 「실행」 을 눌러야 한다.
 #pragma once
 
 #include <QCheckBox>
@@ -17,9 +20,12 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSlider>
 #include <QTableWidget>
 #include <QTimer>
 
+#include <array>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
@@ -38,6 +44,8 @@ struct QueuedTask
 {
   std::string color, zone;
   bool dry{false};
+  std::string target_id;                              // 화면에서 고른 물체 (있으면 색 대신)
+  std::optional<std::array<double, 2>> place;         // 화면에서 고른 자리 (있으면 구역 대신)
 };
 
 class MainWindow : public QMainWindow
@@ -51,6 +59,9 @@ public:
   void connectNow() {onConnect();}
   void queueTask(const std::string & color, const std::string & zone, bool dry = false);
   void startQueue() {onStartQueue();}
+  // 시험용 (--selftest): 조작 허용 -> 홈 -> TCP +Z -> J1 +10° -> 화면 선택(파랑 큐브 -> 빈 곳) 작업.
+  // 단계마다 로그로 완료를 확인하고 결과를 표준 출력에 「SELFTEST PASS/FAIL ...」 로 남긴 뒤 done(성공 여부) 을 부른다.
+  void runSelftest(std::function<void(bool)> done);
 
 protected:
   void closeEvent(QCloseEvent * ev) override;
@@ -64,7 +75,8 @@ private:
   QWidget * buildQueuePanel();
   QWidget * buildLogPanel();
   QWidget * buildVoicePanel();
-  QWidget * buildPlaceholder(const QString & title, const QString & text);
+  QWidget * buildWorkspacePanel();
+  QWidget * buildJogPanel();
   void placeLogo();                 // 상단 줄 가운데에 로고 (버튼·제목과 겹치지 않게)
 
   // ---- 동작
@@ -76,6 +88,15 @@ private:
   void onStartQueue();
   void nextTask();
   void onVoiceRun(bool automatic);
+  void onHome();
+  bool armOk(const std::string & what);   // 「조작 허용」 + 이동 가능 검사. 통과하면 잠금 시계를 다시 셈
+  QString whyNotReady();                  // 지금 수동 조작을 못 하는 이유 (없으면 빈 문자열)
+  // 화면 선택 (카메라 클릭): 큐브 위 = 그 물체(이거), 빈 곳 = 놓을 자리(저기)
+  void onCameraClick(double x, double y);
+  void runSelection();
+  void clearSelection();
+  void updateSelectionLabel();
+  void addQueueItem(const QueuedTask & t, bool front);   // 큐 목록에 한 줄 (front = 맨 앞)
 
   // ---- 주기 갱신
   void refresh();                   // 100 ms
@@ -108,6 +129,25 @@ private:
   QPushButton * btn_talk_{nullptr}, * btn_voice_run_{nullptr};
   QLineEdit * txt_cmd_{nullptr};
   QTimer timer_, cam_timer_;
+
+  // ---- M2: 수동 조작·화면 선택·작업 공간
+  QPushButton * btn_home_{nullptr}, * btn_gopen_{nullptr}, * btn_gclose_{nullptr}, * btn_sel_run_{nullptr};
+  QCheckBox * chk_arm_{nullptr};
+  QComboBox * cmb_step_{nullptr};
+  QSlider * sld_speed_{nullptr};
+  QLabel * lbl_speed_{nullptr}, * lbl_jog_reason_{nullptr}, * lbl_tcp_{nullptr}, * lbl_sel_{nullptr};
+  std::vector<QPushButton *> jog_buttons_;
+  WorkspaceView * workspace_{nullptr};
+  std::chrono::steady_clock::time_point last_cmd_{std::chrono::steady_clock::now()};
+  std::string sel_id_;                                 // 고른 물체 (이거)
+  std::optional<std::array<double, 2>> sel_place_;     // 고른 놓을 자리 (저기, world [m])
+  std::string current_color_;                          // 지금 작업 중인 색 (카메라·지도에서 강조)
+  // 시험용 상태
+  QTimer selftest_timer_;
+  int selftest_step_{0};
+  uint64_t selftest_log_mark_{0};
+  bool selftest_ok_{true};
+  std::chrono::steady_clock::time_point selftest_t0_;
 };
 
 }  // namespace aris

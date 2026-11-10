@@ -17,6 +17,10 @@
   <depend>rcl_interfaces</depend>
   <depend>rosgraph_msgs</depend>
   <depend>moveit_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>shape_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <depend>qtbase5-dev</depend>
 
   <exec_depend>aris3_bringup</exec_depend>      <!-- 시뮬레이션 모드: Connect 가 aris3_sim_full.launch.py 실행 -->

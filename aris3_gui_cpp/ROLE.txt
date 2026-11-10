@@ -21,7 +21,9 @@ M2: 수동 조작(MoveIt 조그·홈·그리퍼, 조작 허용), 카메라 검�
 M3: 실물 모드 (aris3_real_bridge, 실물 집기·보정 패널, 손짓 이벤트) - aris3_real_sim.launch.py 로 시험
 
 [현재 상태]
-M1 구현 (2026-11-10). gtest 6/6 (수신 주기, 로그 거르기, 작업 단계 추적).
+M1 구현 (2026-11-10): 화면에 띄워 --connect --task blue:A -> 구역 A 중심에서 3.0 mm.
+M2 구현 (2026-11-11): 수동 조작·화면 선택·작업 공간. --selftest 6/6 (홈, TCP +Z 20 mm, J1 +10°, 화면 선택 작업 2.0 mm).
+gtest 8/8 (수신 주기, 로그 거르기, 작업 단계, 카메라 투영·역투영).
 
 [참고]
 - 실행: ros2 run aris3_gui_cpp aris  (README.md)

@@ -2,6 +2,7 @@
 #include "aris3_gui_cpp/gui_logic.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace aris
 {
@@ -94,6 +95,42 @@ double StageTracker::seconds(const std::string & stage) const
 {
   auto it = sec_.find(stage);
   return it == sec_.end() ? 0.0 : it->second;
+}
+
+Vec3 quatApply(const Quat & q, const Vec3 & v)
+{
+  // v' = v + w t + q_vec x t,  t = 2 (q_vec x v)  (aris3_gui widgets.quat_apply 와 같음)
+  const double x = q[0], y = q[1], z = q[2], w = q[3];
+  const double tx = 2 * (y * v[2] - z * v[1]);
+  const double ty = 2 * (z * v[0] - x * v[2]);
+  const double tz = 2 * (x * v[1] - y * v[0]);
+  return {v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)};
+}
+
+double PinholeCamera::focal() const
+{
+  return (width / 2.0) / std::tan(hfov / 2.0);
+}
+
+std::optional<Vec3> PinholeCamera::project(const Vec3 & p) const
+{
+  Vec3 c = quatApply(q, p);
+  c = {c[0] + t[0], c[1] + t[1], c[2] + t[2]};
+  if (c[2] <= 0.01) {return std::nullopt;}           // 카메라 뒤 또는 너무 가까움
+  const double f = focal();
+  return Vec3{width / 2.0 + f * c[0] / c[2], height / 2.0 + f * c[1] / c[2], c[2]};
+}
+
+std::optional<std::array<double, 2>> PinholeCamera::unproject(double u, double v, double plane_z) const
+{
+  const Quat qi{-q[0], -q[1], -q[2], q[3]};          // world <- 카메라 회전
+  const double f = focal();
+  const Vec3 d = quatApply(qi, {(u - width / 2.0) / f, (v - height / 2.0) / f, 1.0});   // 광선 방향 (world)
+  const Vec3 o = quatApply(qi, {-t[0], -t[1], -t[2]});                                // 카메라 중심 (world)
+  if (std::abs(d[2]) < 1e-9) {return std::nullopt;}
+  const double s = (plane_z - o[2]) / d[2];
+  if (s <= 0) {return std::nullopt;}
+  return std::array<double, 2>{o[0] + s * d[0], o[1] + s * d[1]};
 }
 
 }  // namespace aris
