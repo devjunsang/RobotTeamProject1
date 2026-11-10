@@ -487,13 +487,13 @@ void MainWindow::runSelftestReal(std::function<void(bool)> done)
   auto elapsed = [this]() {
       return std::chrono::duration<double>(std::chrono::steady_clock::now() - selftest_t0_).count();
     };
-  // label 이 들어간 로그 중 ok_word 가 있으면 1, 「실패」/「거부」/「멈춤」 이 있으면 -1, 아직이면 0
-  auto logHas = [this](const std::string & label, const std::string & ok_word) {
+  // 「label: 」 로 시작하는 브리지 결과 로그로 판정: INFO(성공) 이면 1, WARN/ERROR 이면 -1, 아직 없으면 0.
+  // 문장 속 낱말로 판정하지 않는다 - 실패 문장 안에도 「그리퍼 닫기: 완료」 처럼 「완료」 가 들어갈 수 있다 (2026-11-11 거짓 PASS)
+  auto logHas = [this](const std::string & label) {
+      const std::string head = label + ": ";
       for (const auto & l : node_->snapshot().logs) {
-        if (l.seq <= selftest_log_mark_ || l.node != "gui" || l.text.find(label) == std::string::npos) {continue;}
-        if (l.text.find(ok_word) != std::string::npos) {return 1;}
-        if (l.text.find("실패") != std::string::npos || l.text.find("거부") != std::string::npos ||
-          l.text.find("멈춤") != std::string::npos) {return -1;}
+        if (l.seq <= selftest_log_mark_ || l.node != "gui" || l.text.rfind(head, 0) != 0) {continue;}
+        return l.level == "INFO" ? 1 : -1;
       }
       return 0;
     };
@@ -526,7 +526,7 @@ void MainWindow::runSelftestReal(std::function<void(bool)> done)
             return;
           }
         case 3: {
-            const int r = logHas("홈 이동", "완료");
+            const int r = logHas("홈 이동");
             if (r == 0 && elapsed() < 60) {return;}
             report("홈 이동", r == 1);
             mark();
@@ -564,7 +564,7 @@ void MainWindow::runSelftestReal(std::function<void(bool)> done)
             return;
           }
         case 5: {
-            const int r = logHas("집어서 옮기기", "완료");
+            const int r = logHas("집어서 옮기기");
             if (r == 0 && elapsed() < 120) {return;}
             report("집어서 옮기기 (가상 컨트롤러 + 시뮬레이션 그리퍼)", r == 1);
             // 이동 중 정지: 홈으로 가다가 정지
@@ -575,7 +575,7 @@ void MainWindow::runSelftestReal(std::function<void(bool)> done)
             return;
           }
         case 6: {
-            const int r = logHas("홈 이동", "완료");
+            const int r = logHas("홈 이동");
             if (r == 0 && elapsed() < 30) {return;}
             report("이동 중 정지 -> 홈 이동이 끝나지 않고 멈춤", r == -1);
             chk_arm_->setChecked(false);
