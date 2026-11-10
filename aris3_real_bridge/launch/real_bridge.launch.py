@@ -12,6 +12,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """launch 인자(접속 주소·최저 높이·잠금 시간)를 받아 브리지 노드 하나를 띄운다."""
     args = [('ns', 'e0509_real', 'dsr_bringup2 이름'), ('host', '110.120.1.66', 'E0509 컨트롤러 IP'),
             ('port', '12345', '컨트롤러 포트'), ('z_min_mm', '50.0', '손끝 최저 높이 [mm]'),
             ('arm_timeout_s', '120.0', '명령이 없으면 조작 허용을 잠그는 시간 [s]')]

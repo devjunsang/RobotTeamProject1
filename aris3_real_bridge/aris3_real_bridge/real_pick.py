@@ -69,6 +69,7 @@ class PixelCalibration:
     """영상 픽셀 (u, v) -> 로봇 베이스 (x, y) mm, 집는 높이 z mm."""
 
     def __init__(self):
+        """빈 보정: 점 없음, 변환 행렬 없음 (ready() 가 False)."""
         self.points = []        # dict(u, v, x, y, z, label)
         self.H = None
         self.grasp_z = None
@@ -80,17 +81,20 @@ class PixelCalibration:
         self.fit()
 
     def remove_last(self):
+        """마지막으로 기록한 점을 지우고 다시 맞춘다 (잘못 찍은 점 되돌리기)."""
         if self.points:
             self.points.pop()
         self.fit()
 
     def clear(self):
+        """모든 점을 지운다."""
         self.points = []
         self.fit()
 
     # ---- 계산
     @staticmethod
     def _homography(pts):
+        """점들의 픽셀 (u, v) -> 로봇 (x, y) 를 가장 잘 맞추는 3x3 호모그래피 (최소제곱)."""
         src = np.array([[p['u'], p['v']] for p in pts], np.float64)
         dst = np.array([[p['x'], p['y']] for p in pts], np.float64)
         H, _ = cv2.findHomography(src, dst, 0)      # 0 = 모든 점 최소제곱 (RANSAC 아님)
@@ -98,10 +102,15 @@ class PixelCalibration:
 
     @staticmethod
     def _apply(H, u, v):
+        """호모그래피 H 로 픽셀 (u, v) 를 로봇 (x, y) mm 로 바꾼다 (동차 좌표를 w 로 나눔)."""
         q = H @ np.array([u, v, 1.0])
         return q[0] / q[2], q[1] / q[2]
 
     def fit(self):
+        """점이 4개 이상이면 행렬·집는 높이·점별 오차를 다시 계산한다. 맞추면 True.
+
+        점별 오차: 5 점 이상이면 그 점을 빼고 맞춘 행렬로 그 점을 예측해 잰다 (보정이 실제로 맞는지 검증).
+        """
         self.H, self.grasp_z, self.errors_mm = None, None, []
         if len(self.points) < 4:
             return False
@@ -123,6 +132,7 @@ class PixelCalibration:
         return True
 
     def ready(self):
+        """변환을 쓸 수 있는가 (점 4개 이상으로 행렬을 맞춤)."""
         return self.H is not None
 
     def to_robot(self, u, v):
@@ -132,6 +142,7 @@ class PixelCalibration:
         return self._apply(self.H, u, v)
 
     def summary(self):
+        """화면·로그용 한 줄 요약: 점 개수, 집는 높이, 오차 평균/최대."""
         n = len(self.points)
         if not self.ready():
             return f'보정점 {n}개 (4개 이상 필요)'
@@ -150,6 +161,7 @@ class PixelCalibration:
         return path
 
     def load(self, path=CALIB_PATH):
+        """저장한 보정 파일을 읽어 다시 맞춘다. 파일이 없으면 OSError."""
         with open(path) as f:
             self.points = json.load(f)['points']
         return self.fit()
@@ -163,6 +175,7 @@ class PickSequence:
     """
 
     def __init__(self, link, log):
+        """link: RobotLink (또는 시험용 가짜), log: 문자열을 받는 로그 함수."""
         self.link, self.log = link, log
         self.running = False
         self.holding = None     # 마지막 닫기 결과: True 잡음 / False 빈손 / None 모름
@@ -174,6 +187,7 @@ class PickSequence:
         self.last_ok = False    # 마지막 순서가 모든 단계를 끝까지 마쳤는가
 
     def start(self, name, steps):
+        """단계 목록 steps [(이름, 함수)] 를 작업 스레드에서 실행한다. 이미 실행 중이면 거부(False)."""
         if self.running:
             self.log(f'{name} 거부: 이전 순서가 진행 중')
             return False
@@ -183,6 +197,7 @@ class PickSequence:
         return True
 
     def _run(self, name, steps):
+        """작업 스레드 본체: 단계를 하나씩 실행하고 끝날 때까지 기다린다. 하나라도 실패·정지하면 남은 단계는 보내지 않는다."""
         try:
             self.log(f'{name}: 시작 ({len(steps)}단계)')
             for i, (label, fn) in enumerate(steps, 1):
@@ -205,6 +220,7 @@ class PickSequence:
     def _travel(self, x, y, z, vel, label):
         """접근 높이에서 (x, y) 로 수평 이동. 실행할 때의 현재 위치에서 멀면 경유점을 거친다."""
         def run():
+            """실행할 때 현재 위치를 읽어 경유점을 정하고 차례로 이동 (먼 이동을 나눠 몸통 근처를 피함)."""
             p = self.link.posx
             if p is None:
                 self.log(f'{label} 거부: 현재 좌표 모름')
@@ -219,6 +235,7 @@ class PickSequence:
         return (label, run)
 
     def _grip(self, close):
+        """그리퍼 열기/닫기 단계 (닫기는 GRIP_CURRENT_MA 전류로 - 큐브를 잡을 만큼만)."""
         label = '그리퍼 닫기' if close else '그리퍼 열기'
         return (label, lambda: self.link.gripper_command('move', pos=GRIP_CLOSE_POS if close else 0,
                                                          cur=GRIP_CURRENT_MA, vel=1500, label=label))
@@ -226,6 +243,7 @@ class PickSequence:
     def _check_hold(self, require=False):
         """require=True 이면 빈손이거나 모를 때 이후 단계(옮겨 놓기)를 취소한다."""
         def check():
+            """닫은 뒤 그리퍼 위치·토크로 잡았는지 판단해 holding 에 저장 (require 면 빈손일 때 실패)."""
             d = self.link.gripper
             if not d:
                 self.holding = None
@@ -249,6 +267,7 @@ class PickSequence:
         top = z_grasp + APPROACH_MM
 
         def rise():                         # 지금 XY 에서 접근 높이까지 올라간 뒤 수평 이동
+            """이미 접근 높이 이상이면 건너뛰고, 아니면 지금 XY 에서 접근 높이까지 수직으로 올린다."""
             p = self.link.posx
             if p is None:
                 self.log('놓기 거부: 현재 좌표 모름')
@@ -266,9 +285,11 @@ class PickSequence:
         ]
 
     def hover(self, x, y, z_grasp):
+        """고른 큐브 위 접근 높이로만 간다 (집기 전에 위치가 맞는지 눈으로 확인용)."""
         return self.start('큐브 위로', [self._travel(x, y, z_grasp + APPROACH_MM, TRAVEL_VEL, '큐브 위 접근 높이로')])
 
     def pick(self, x, y, z_grasp):
+        """큐브 집기: 접근 높이로 이동 -> 열기 -> 하강 -> 닫기 -> 잡았는지 확인 -> 들기."""
         top = z_grasp + APPROACH_MM
         return self.start('집기', [
             self._travel(x, y, top, TRAVEL_VEL, '큐브 위 접근 높이로'),

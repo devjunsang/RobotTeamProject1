@@ -56,19 +56,27 @@ def nearest_px(objects, u, v, max_dist=None):
 
 
 def joint_vel(pct):
+    """속도 비율(%) -> 관절 속도 deg/s. 너무 느려 멈춘 것처럼 보이지 않게 최소 5 deg/s."""
     return max(5.0, MAX_JOINT_VEL * float(pct) / 100.0)
 
 
 def cart_vel(pct):
+    """속도 비율(%) -> 직선 속도 mm/s. 최소 10 mm/s."""
     return max(10.0, MAX_CART_VEL * float(pct) / 100.0)
 
 
 def hold_code(holding, cls=RealRobotState):
+    """PickSequence.holding(True/False/None) -> 메시지의 HOLD_YES / HOLD_NO / HOLD_UNKNOWN 숫자."""
     return cls.HOLD_UNKNOWN if holding is None else (cls.HOLD_YES if holding else cls.HOLD_NO)
 
 
 class RealBridge(Node):
+    """실물 로봇 브리지 노드. RobotLink·보정·집기 순서를 감싸 /aris3/real/* 서비스·액션·상태 토픽으로 내놓는다."""
     def __init__(self, link, mgr, conn, state_ko=None):
+        """link: RobotLink, mgr: BringupManager, conn: ConnectionController, state_ko: 상태 이름 -> 한국어 표.
+
+        시험에서는 가짜 객체를 넣어 로봇 없이 돌린다 (test/test_bridge_node.py).
+        """
         super().__init__('aris3_real_bridge')
         self.declare_parameter('arm_timeout_s', 120.0, ANY_TYPE)
         self.declare_parameter('state_rate_hz', 10.0, ANY_TYPE)
@@ -135,9 +143,11 @@ class RealBridge(Node):
         return lines[-1][9:] if lines else default
 
     def _on_px(self, msg):
+        """색 검출(영상 픽셀) 수신: 마지막 목록과 받은 시각을 저장 (집기 직전·보정 ① 에서 다시 읽음)."""
         self.px_objects, self.px_stamp = list(msg.objects), time.time()
 
     def _fresh_px(self, max_age):
+        """max_age 초 안에 받은 검출만 돌려준다. 검출 노드가 꺼졌으면 빈 목록 (오래된 위치로 움직이지 않게)."""
         return self.px_objects if time.time() - self.px_stamp <= max_age else []
 
     # ================================================================== 서비스
@@ -150,6 +160,7 @@ class RealBridge(Node):
         return res
 
     def _srv_connect(self, _req, res):
+        """/aris3/real/connect: dsr_bringup2 접속 시작 (오래 걸리므로 백그라운드에서, 결과는 상태 토픽으로)."""
         if self.link.joints_fresh():
             res.success, res.message = True, '이미 접속됨'
         else:
@@ -159,12 +170,14 @@ class RealBridge(Node):
         return res
 
     def _srv_disconnect(self, _req, res):
+        """/aris3/real/disconnect: 접속 끊기 (서보 꺼짐). 먼저 조작 허용을 잠근다."""
         self.armed = False
         res.success = bool(self.conn.disconnect_async())
         res.message = '접속 끊기 시작 (서보 꺼짐, 브레이크가 팔을 잡음)' if res.success else '이미 접속/끊기 작업 중'
         return res
 
     def _srv_set_armed(self, req, res):
+        """/aris3/real/set_armed: 조작 허용 켜기/끄기. 켜면 잠금 시계를 지금부터 다시 센다."""
         with self._lock:
             self.armed = bool(req.data)
             self._touch()
@@ -173,6 +186,10 @@ class RealBridge(Node):
         return res
 
     def _srv_set_hand_guide(self, req, res):
+        """/aris3/real/set_hand_guide: 손으로 움직이기(수동 모드) 켜기/끄기.
+
+        집기 순서 중에는 켜지 않는다. 켜든 끄든 조작 허용은 잠근다 (예전 GUI 와 같은 동작).
+        """
         on = bool(req.data)
         if on and self.picker.running:
             res.success, res.message = False, '집기/놓기 순서가 진행 중 - 끝난 뒤에 켜세요'
@@ -183,6 +200,10 @@ class RealBridge(Node):
         return res
 
     def _srv_calibration(self, req, res):
+        """/aris3/real/calibration: 카메라 보정 명령 (① 기억, ② 기록, 삭제, 저장, 불러오기).
+
+        결과 문장을 로그와 응답으로 돌려주고, 점 개수·오차·행렬은 상태 토픽으로 나간다.
+        """
         C = RealCalibration.Request
         c = self.calib
         ok, msg = True, ''
@@ -245,6 +266,7 @@ class RealBridge(Node):
         return GoalResponse.ACCEPT
 
     def _cancel_cb(self, _goal_handle):
+        """액션 취소 요청: 바로 로봇 정지를 보내고 받아들인다 (실행 콜백이 이어서 취소로 끝낸다)."""
         self.link.stop()
         return CancelResponse.ACCEPT
 
@@ -270,6 +292,7 @@ class RealBridge(Node):
     def _exec_guard(self, fn, result_cls):
         """실행 콜백이 어떻게 끝나든(예외 포함) 다음 목표를 받을 수 있게 active_goal 을 푼다."""
         def run(goal_handle):
+            """실제로 액션 서버가 부르는 함수: fn 을 실행하고, 예외가 나도 로봇을 멈추고 실패 결과를 돌려준다."""
             try:
                 return fn(goal_handle)
             except Exception as e:      # noqa: BLE001 - 로봇 정지 후 실패로 끝낸다
@@ -285,6 +308,7 @@ class RealBridge(Node):
         return run
 
     def _finish(self, goal_handle, result):
+        """액션 끝내기: 취소 요청이 있었으면 canceled, 성공이면 succeed, 아니면 abort 로 결과를 돌려준다."""
         if goal_handle.is_cancel_requested:
             result.success = False
             result.message = result.message or '취소됨 (정지)'
@@ -333,6 +357,7 @@ class RealBridge(Node):
             return self._finish(goal_handle, res)
 
         def fb():
+            """이동 중 feedback: RobotLink 가 마지막으로 남긴 로그 한 줄 ("서보 켜기 요청 성공 ..." 등)."""
             m = RealMotion.Feedback()
             m.message = self._last_link_log(what)
             goal_handle.publish_feedback(m)
@@ -355,6 +380,7 @@ class RealBridge(Node):
         return self.calib.to_robot(u, v)
 
     def _exec_pick(self, goal_handle):
+        """/aris3/real/pick_place 실행: 검사 -> 대상 픽셀을 지금 검출로 고쳐 로봇 좌표로 -> PickSequence 시작 -> 끝날 때까지 단계 feedback."""
         g = goal_handle.request
         G = RealPickPlace.Goal
         res = RealPickPlace.Result()
@@ -395,6 +421,7 @@ class RealBridge(Node):
             return self._finish(goal_handle, res)
 
         def fb():
+            """집기 중 feedback: 지금 단계 이름·번호와 RobotLink 마지막 로그."""
             m = RealPickPlace.Feedback()
             m.step, m.step_index, m.step_count = P.step, P.step_index, P.step_count
             m.detail = self._last_link_log(P.step)
@@ -418,6 +445,7 @@ class RealBridge(Node):
         self.pub_state.publish(self.state_msg(now))
 
     def state_msg(self, now=None):
+        """지금 상태를 RealRobotState 한 장으로 만든다 (10 Hz 타이머가 발행, 시험에서도 직접 부름)."""
         now = now or time.time()
         L, P, c = self.link, self.picker, self.calib
         m = RealRobotState()
@@ -467,6 +495,10 @@ class RealBridge(Node):
 
 
 def main(args=None):
+    """노드 실행: 접속 설정 파라미터를 읽고 RobotLink·BringupManager 를 만든 뒤 브리지를 돌린다.
+
+    끝날 때는 로봇을 정지시키고, 이 노드가 시작한 로봇 접속만 끊는다 (다른 곳에서 띄운 접속은 그대로).
+    """
     from e0509_manual.bringup import BringupManager, ConnectionController
     from e0509_manual.robot_link import STATE_KO, start_link
 
