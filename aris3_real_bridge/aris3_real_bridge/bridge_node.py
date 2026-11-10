@@ -24,7 +24,7 @@ import time
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rcl_interfaces.msg import ParameterDescriptor
 from std_srvs.srv import SetBool, Trigger
@@ -520,13 +520,18 @@ def main(args=None):
     ex.add_node(node)
     try:
         ex.spin()
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass                                # Ctrl-C / launch 종료(SIGINT) - 아래에서 정리
     finally:
-        link.stop()
+        # 순서가 중요: SIGINT 로 rclpy 가 이미 내려갔으면 ROS 호출(정지)은 실패할 수 있으므로,
+        # ROS 와 상관없는 로봇 접속 끊기(dsr_bringup2 프로세스 종료 -> 서보 꺼짐)를 먼저 한다.
         if mgr.own_running():
-            node.get_logger().info('이 노드가 실행한 로봇 접속을 끊습니다')
+            print('[aris3_real_bridge] 이 노드가 실행한 로봇 접속을 끊습니다', flush=True)
             mgr.stop()
+        try:
+            link.stop()
+        except Exception:  # noqa: BLE001 - 종료 중이라 ROS 가 없을 수 있음 (접속은 위에서 이미 끊음)
+            pass
         ex.shutdown()
         link_ex.shutdown()
         node.destroy_node()
