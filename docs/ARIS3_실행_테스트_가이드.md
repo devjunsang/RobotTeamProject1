@@ -146,6 +146,37 @@ ros2 run aris3_gui control_station --mode real     # 음성·손짓 노드도 �
 
 음성·손짓 모두 로봇을 바로 움직이지 않고 **항상 확인창**을 거친다. 같은 색이 여러 개면 색 명령은 거부 → 클릭/손짓 후 「이거」.
 
+## 5-2. 실물과 비슷한 시뮬레이션 - 실물 로봇 없이 실물 경로 시험 (2026-11-10)
+
+실물 모드(GUI -> `aris3_real_bridge` -> RobotLink -> 두산 서비스)를 로봇 없이 시험한다. 팔은 **두산 가상 컨트롤러**
+(Docker DRCF 에뮬레이터)가 실물과 같은 서비스로 움직이고, Gazebo 의 ARIS3 로봇이 그 관절을 따라간다.
+
+```bash
+# 터미널 1: 월드 (Gazebo + 실물 비슷한 카메라 + 색 검출 + 그리퍼). 「[PASS] ARIS3 실물 비슷한 시뮬레이션 준비 완료」 까지 기다림
+ros2 launch aris3_bringup aris3_real_sim.launch.py
+# 터미널 2: GUI 실물 모드(가상). 제목·모드에 「가상」 이 보여야 함 -> Connect (가상 컨트롤러 Docker 가 뜸, 약 10초)
+ros2 run aris3_gui control_station --mode real --sim --no-gesture
+# (보정 빠르게) 조작 허용 -> ⌂ Home 으로 팔을 카메라 밖으로 뺀 뒤
+python3 scripts/aris3_sim_auto_calib.py        # ~/.config/aris3/sim_camera_calib.json (실물 보정과 따로)
+ros2 service call /aris3/real/calibration aris3_interfaces/srv/RealCalibration "{command: 5}"   # 불러오기
+```
+
+| 실물 | 이 시뮬레이션 |
+|---|---|
+| 두산 컨트롤러 (`dsr_bringup2 mode:=real`) | 두산 가상 컨트롤러 (`mode:=virtual`, Connect 가 띄움) |
+| RH-P12-RN-A 그리퍼 (DRL) | Gazebo RH-P12-RN-A (`/aris3/gripper/command`) |
+| D455 JPEG 1280x720, 탁자 위 약 0.8 m, 영상 위 = 로봇 +X | Gazebo 카메라 1280x720, 0.85 m, 같은 방향·축척(약 1.17 mm/px), JPEG 만 |
+| `scripts/aris3_color_detector.py` | 같은 스크립트 |
+| 보정 `real_camera_calib.json` | `sim_camera_calib.json` (가상 모드는 실물 보정 파일을 쓰지 않음 - 브리지가 막음) |
+
+**실물과 다른 점 (실물 재시험에서 확인할 것)**: 가상 컨트롤러는 충돌 감지·외력 안전 정지·관절 브레이크를 재현하지 않고
+Gazebo 팔은 탁자·큐브를 뚫고 지날 수 있다(최저 높이 검사는 그대로). 그리퍼는 DRL·토크 확인이 아니라 서비스.
+큐브 5 cm(실물 4 cm), 시뮬레이션 탁자는 x ±0.70 m (실물보다 작음 - 가장자리에 큐브를 놓으면 떨어짐).
+홈 자세의 팔이 카메라 중앙 아래쪽을 가린다 (x 0.45 m 안쪽 큐브가 안 보일 수 있음).
+
+2026-11-10 결과 (처음부터 다시 띄워 확인, 12/12): 접속 10 초, 홈 이동, 자동 보정 오차 평균 1.6 / 최대 6.6 mm,
+「집어서 옮기기」 30 초로 빨강 큐브를 목표 (470, 95) mm 에 놓음 - Gazebo 정답 위치 오차 5.1 mm, 이동 중 취소 = 정지.
+
 ## 6. 지금 상태와 다음 단계 (손짓 상호작용)
 
 | 단계 | 상태 |

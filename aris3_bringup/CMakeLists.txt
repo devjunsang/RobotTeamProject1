@@ -14,6 +14,12 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# 실물 비슷한 시뮬레이션 준비 (aris3_real_sim.launch.py, 2026-11-10)
+install(
+  PROGRAMS scripts/real_sim_setup.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 # PHASE 3: Gazebo 객체 자동 생성 스크립트 설치
 install(

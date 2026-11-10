@@ -18,3 +18,5 @@ PHASE 4 ~ 5 (aris3_vision / aris3_control 이 같은 계약을 제공하면 사�
 
 [현재 상태]
 구현 완료 (2026-11-07) - README.md 참고
+2026-11-10: 실물 비슷한 시뮬레이션용 dsr_joint_mirror (두산 가상 컨트롤러 관절 -> Gazebo 팔),
+jpeg_republisher (Gazebo 원본 영상 -> 실물 카메라 노드와 같은 JPEG 토픽). pytest 3개.
