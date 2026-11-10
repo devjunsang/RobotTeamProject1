@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>aris3_gui_cpp</name>
+  <version>0.1.0</version>
+  <description>ARIS - ARIS3 Control Station C++ Qt5 버전 (aris3_gui PyQt 와 나란히 유지). 시뮬레이션·실물(aris3_real_bridge) 모드.</description>
+  <maintainer email="devjunsang@gmail.com">MasterJun</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>aris3_interfaces</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>rosgraph_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>qtbase5-dev</depend>
+
+  <exec_depend>aris3_bringup</exec_depend>      <!-- 시뮬레이션 모드: Connect 가 aris3_sim_full.launch.py 실행 -->
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

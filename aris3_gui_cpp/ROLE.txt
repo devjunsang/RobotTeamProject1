@@ -1,0 +1,29 @@
+ARIS3 / aris3_gui_cpp
+=====================
+
+[폴더 역할]
+ARIS - ARIS3 Control Station 의 C++ Qt5 버전. Python(PyQt5) 버전 aris3_gui 와 같은 저장소·브랜치에서 나란히 유지한다.
+
+[개발 기술]
+C++17 / Qt5 Widgets / rclcpp / rclcpp_action  (Qt5: ROS 2 Jazzy 의 rqt·RViz 와 같은 버전 - 나중에 RViz 패널 내장 가능)
+
+[구현할 내용]
+aris3_gui 와 같은 기능을 같은 공용 인터페이스로: 시뮬레이션 = Task Manager(/aris3/execute_task)·MoveIt,
+실물 = aris3_real_bridge(/aris3/real/*), 손짓 = /aris3/gesture/event. 로봇 안전 코드는 GUI 에 두지 않는다.
+테마: 아이언맨 슈트 색 (레드·골드·아크 시안, 입체감) - 목업 https://claude.ai/artifact/JWd8zHNgw7hHZXVh9sKyZ8
+
+[완료 기준]
+ARIS 하나로 시뮬레이션·실물(가상 포함) 모드에서 aris3_gui 와 같은 작업을 할 수 있다.
+
+[개발 단계]
+M1 (2026-11-10): 골격·테마·로고·시스템 상태·카메라 영상·로그·작업 큐/단계·음성·Connect/정지 (시뮬레이션)
+M2: 수동 조작(MoveIt 조그·홈·그리퍼, 조작 허용), 카메라 검출 TF 투영·클릭 선택, 작업 공간 2D
+M3: 실물 모드 (aris3_real_bridge, 실물 집기·보정 패널, 손짓 이벤트) - aris3_real_sim.launch.py 로 시험
+
+[현재 상태]
+M1 구현 (2026-11-10). gtest 6/6 (수신 주기, 로그 거르기, 작업 단계 추적).
+
+[참고]
+- 실행: ros2 run aris3_gui_cpp aris  (README.md)
+- 로고 원본: aris3_gui/aris3_gui/assets/aris_mark.svg (여기 resources/ 의 PNG 는 그것을 그린 것.
+  libqt5svg5-dev 가 없어 C++ 에서는 PNG 를 쓴다)
