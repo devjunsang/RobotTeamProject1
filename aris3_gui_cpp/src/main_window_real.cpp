@@ -180,6 +180,7 @@ void MainWindow::refreshReal(const Snapshot & s)
     updatePickLabel();
   }
   gestureTick(s);
+  powerOnTick();                                     // 「아리스 가동」 대기
   // 로봇 상태·복구 버튼·손으로 움직이기
   const QString st = real_->robotStateText();
   const bool bad = st != QStringLiteral("대기") && st != QStringLiteral("이동 중");
@@ -366,11 +367,42 @@ void MainWindow::pickAndPlace(const QString & heard)
 // ======================================================================== 실물 음성 (매번 확인창)
 void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
 {
+  if (v.action == "stop") {                          // 「멈춰」 는 언제나 (보통은 받는 즉시 이미 처리됨)
+    onStop();
+    return;
+  }
   if (real_->pickRunning() || dialog_open_) {
     node_->log("WARN", "음성 「" + v.text + "」 무시: 이전 순서 진행 중이거나 확인창이 떠 있음");
     return;
   }
   const QString heard = QStringLiteral("음성: 「%1」").arg(QString::fromStdString(v.text));
+  // 음성으로 시작한 동작은 확인창 없이 바로 실행한다 (사용자 결정 2026-11-11).
+  // 조작 허용 확인(armOk)과 정지는 그대로 동작한다. 이 함수를 벗어나면 다시 묻는다 (손짓·버튼은 계속 확인창).
+  struct DirectGuard {
+    bool & f;
+    explicit DirectGuard(bool & flag) : f(flag) {f = true;}
+    ~DirectGuard() {f = false;}
+  } direct(voice_direct_);
+  if (v.action == "disconnect") {                   // 「아리스 연결해제」: 접속 끊기 (서보 꺼짐, 브레이크)
+    power_on_until_.reset();
+    onDisconnect();
+    return;
+  }
+  if (v.action == "power_on") {                     // 「아리스 가동」: 접속 -> 준비되면 팔을 위로 일자로 펴기
+    if (!real_->connected()) {
+      onConnect();
+    }
+    power_on_until_ = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+    power_on_arm_warned_ = false;
+    node_->log("INFO", "가동: 접속 확인 -> 준비되면 팔을 위로 일자로 폅니다 (조작 허용 필요)");
+    return;
+  }
+  if (v.action == "resume") {                       // 「아리스 계속해」: 정지로 끊긴 집기 순서를 이어서
+    if (armOk("이어서 하기")) {
+      real_->resumePick();
+    }
+    return;
+  }
   if (v.action == "home") {                         // 「아리스 홈으로」
     homeVoice(heard);
     return;
@@ -409,6 +441,30 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
   } else {
     pickRun(heard);
   }
+}
+
+// 「가동」 대기: 접속이 끝나 대기 상태이고 조작 허용이 켜지면 가동 자세로. 90 초 안에 안 되면 취소
+void MainWindow::powerOnTick()
+{
+  if (!power_on_until_) {return;}
+  if (std::chrono::steady_clock::now() > *power_on_until_) {
+    power_on_until_.reset();
+    node_->log("WARN", "가동: 90 초 안에 준비되지 않아 팔 펴기를 취소 (접속 상태·조작 허용 확인)");
+    return;
+  }
+  const auto s = real_->state();
+  const bool ready = s && s->connected && s->robot_state_ok && !s->connecting && s->why_not_ready.empty();
+  if (!ready) {return;}                              // 접속하는 중
+  if (!chk_arm_->isChecked() || !s->armed) {         // 조작 허용은 사람이 주변을 보고 켠다 (음성으로 켜지 않음)
+    if (!power_on_arm_warned_) {
+      node_->log("WARN", "가동: 접속 완료 - 「조작 허용」 을 체크하면 팔을 위로 일자로 폅니다");
+      power_on_arm_warned_ = true;
+    }
+    return;
+  }
+  power_on_until_.reset();
+  node_->log("INFO", "가동: 팔을 위로 일자로 폅니다 (모든 관절 0°) - 집기 전에는 「아리스 홈」");
+  real_->stretch(sld_speed_->value());
 }
 
 void MainWindow::homeVoice(const QString & heard)

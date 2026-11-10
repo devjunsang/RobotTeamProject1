@@ -69,6 +69,14 @@ class VoiceMixin:
         if v is None or not v.valid:
             self.node.log('WARN', '실행할 수 있는 음성 명령이 없음')
             return
+        if v.action == 'stop':                      # 「아리스 멈춰」: ■ Stop 과 같음 (2026-11-11)
+            self.node.log('WARN', f'음성 「{v.text}」 -> 정지')
+            self._stop()
+            return
+        if v.action in ('resume', 'power_on', 'disconnect'):
+            # 「계속해」「가동」「연결해제」 는 ARIS(aris3_gui_cpp) 에서 지원. 여기서는 집기로 잘못 읽히지 않게 막는다
+            self.node.log('WARN', f'음성 「{v.text}」: 이 GUI 는 지원하지 않음 - ARIS(aris3_gui_cpp)를 쓰세요')
+            return
         if v.action == 'place' and self.backend.mode != 'real':
             self.node.log('WARN', '「내려놔」(집은 자리에 놓기) 는 Task Manager 의 pick/place 분리 후 지원 예정 - '
                           '지금은 집기 명령이 놓기까지 한 번에 수행합니다')

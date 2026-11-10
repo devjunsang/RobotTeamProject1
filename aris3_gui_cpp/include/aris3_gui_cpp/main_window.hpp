@@ -119,6 +119,7 @@ private:
   void pickAndPlace(const QString & heard = QString());
   void realVoice(const aris3_interfaces::msg::VoiceCommand & v);
   void homeVoice(const QString & heard);
+  void powerOnTick();                                   // 「가동」 대기: 준비되면 가동 자세로
   void recoverHome();
   void toggleHandGuide(bool on);
   // ---- 주기 갱신
@@ -172,6 +173,10 @@ private:
   bool selftest_ok_{true};
   std::chrono::steady_clock::time_point selftest_t0_;
   bool auto_yes_{false};                               // 시험용: 확인창을 띄우지 않고 「예」
+  bool voice_direct_ = false;   // 음성 명령 처리 중: 확인창 없이 바로 실행 (2026-11-11 사용자 결정)
+  // 「아리스 가동」: 접속이 끝나고(대기) 조작 허용이 켜지면 팔을 편다. 이 시각까지 기다린다 (없으면 대기 안 함)
+  std::optional<std::chrono::steady_clock::time_point> power_on_until_;
+  bool power_on_arm_warned_ = false;
 
   // ---- 실물 모드
   Backend * backend_base_{nullptr};

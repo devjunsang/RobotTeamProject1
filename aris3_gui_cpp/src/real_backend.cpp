@@ -232,6 +232,23 @@ void RealBackend::home(int pct)
   sendAction<Motion>(motion_client_, g, "홈 이동", motion_pending_);
 }
 
+// 「아리스 가동」: 모든 관절 0° 로 관절 이동 (브리지가 홈과 같은 검사를 한다)
+void RealBackend::stretch(int pct)
+{
+  Motion::Goal g;
+  g.kind = Motion::Goal::STRETCH;
+  g.speed_percent = pct;
+  sendAction<Motion>(motion_client_, g, "가동 자세", motion_pending_);
+}
+
+// 「아리스 계속해」: 브리지가 기억한 끊긴 순서를 이어서 (없으면 브리지가 거부 사유를 돌려준다)
+void RealBackend::resumePick()
+{
+  PickPlace::Goal g;
+  g.kind = PickPlace::Goal::RESUME;
+  sendAction<PickPlace>(pick_client_, g, "이어서 하기", pick_pending_);
+}
+
 void RealBackend::recoverHome(int pct)
 {
   Motion::Goal g;

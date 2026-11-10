@@ -525,6 +525,10 @@ bool MainWindow::ask(const QString & title, const QString & text)
     node_->log("INFO", "[시험] 확인창 자동 「예」: " + title.toStdString());
     return true;
   }
+  if (voice_direct_) {                               // 음성 명령은 묻지 않고 바로 실행 (조작 허용·정지는 그대로)
+    node_->log("INFO", "음성 명령 바로 실행: " + title.toStdString());
+    return true;
+  }
   dialog_open_ = true;                               // 떠 있는 동안 손짓·음성이 새 확인창을 띄우지 않게
   const bool yes = QMessageBox::question(this, title, text, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) ==
     QMessageBox::Yes;
@@ -713,6 +717,14 @@ void MainWindow::onVoiceRun(bool automatic)
   }
   if (real_) {                                       // 실물: 「실물 집기」 순서로 (매번 확인창)
     realVoice(*v);
+    return;
+  }
+  if (v->action == "stop") {                         // 보통은 받는 즉시 처리되지만, 「실행」 버튼으로 와도 정지
+    onStop();
+    return;
+  }
+  if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect") {
+    node_->log("WARN", "음성 「" + v->text + "」: 실물 모드(--mode real)에서만 지원 - 시뮬레이션 모드는 Connect 버튼을 쓰세요");
     return;
   }
   if (v->action == "place") {
@@ -914,7 +926,11 @@ void MainWindow::refresh()
           QStringLiteral("<span style='color:%1'>%2 %3</span>").arg(
             (s.voice->valid ? theme::kCyan : theme::kError).name(), s.voice->valid ? "✓" : "✗",
             QString::fromStdString(s.voice->message))));
-      if (s.voice->valid && real_) {
+      if (s.voice->valid && s.voice->action == "stop") {
+        // 「아리스 멈춰」: 정지 버튼과 같다. 다른 검사 없이 바로 (인식까지 약 1 초 걸린다 - 비상정지 대신이 아님)
+        node_->log("WARN", "음성 「" + s.voice->text + "」 -> 정지");
+        onStop();
+      } else if (s.voice->valid && real_) {
         // 실물: 인식되면 바로 확인창 (예 를 눌러야 움직임). 주기 갱신 밖에서 연다
         QTimer::singleShot(0, this, [this]() {onVoiceRun(true);});
       } else if (s.voice->valid && chk_voice_auto_->isChecked()) {
