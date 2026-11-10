@@ -13,6 +13,8 @@ import threading
 import time
 from collections import deque
 
+import cv2
+import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
@@ -27,13 +29,13 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import Image, JointState
+from sensor_msgs.msg import CompressedImage, Image, JointState
 from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
 from aris3_interfaces.action import ExecuteTask
-from aris3_interfaces.msg import DetectedObjectArray, TaskStatus, VoiceCommand
+from aris3_interfaces.msg import DetectedObjectArray, HandGesture, TaskStatus, VoiceCommand
 from aris3_interfaces.srv import GripperCommand
 
 ARM_JOINTS = [f'joint_{i}' for i in range(1, 7)]
@@ -76,13 +78,20 @@ class GuiNode(Node):
         self.clock_rate = RateMeter()
         self.cam_rate = RateMeter()
         self.image = None           # (width, height, encoding, bytes)
+        self.image_seq = 0          # 새 영상이 올 때마다 +1 (같은 영상을 다시 그리지 않게)
         self.image_frame = ''
         self.objects = []           # DetectedObject 목록 (world)
+        self.px_objects = []        # 실물 카메라 색 검출 (영상 픽셀 좌표, 보정 전) - /aris3/vision/detections_px
+        self.px_rate = RateMeter()
         self.det_rate = RateMeter()
         self.task_status = None     # TaskStatus
         self.voice = None           # 마지막 VoiceCommand
         self.voice_state = ''
         self.voice_rate = RateMeter()
+        self.gesture = None         # 마지막 HandGesture (MediaPipe, 실물 카메라 픽셀)
+        self.gesture_time = 0.0     # 받은 시각 (time.time)
+        self.gesture_state = ''
+        self.gesture_rate = RateMeter()
         self.logs = deque(maxlen=400)   # (seq, level, name, text)
         self.log_seq = 0
 
@@ -102,11 +111,21 @@ class GuiNode(Node):
         self.create_subscription(JointState, f'{robot_ns}/joint_states', self._on_js, 50, callback_group=cb)
         self.create_subscription(Clock, '/clock', lambda _m: self.clock_rate.tick(), 10, callback_group=cb)
         self.create_subscription(Image, camera_topic, self._on_image, qos_profile_sensor_data, callback_group=cb)
+        # JPEG 압축 영상 (image_transport 의 '<토픽>/compressed' 이름 규칙). 실물 카메라용.
+        # 원본 1280x720 bgr8 은 2.7 MB 라 Fast DDS 공유 메모리(약 0.5 MB)를 넘어 UDP 조각으로 가고,
+        # best effort 에서는 거의 다 버려졌다 (2026-11-09 측정: 640x480 이상 0 Hz).
+        self.create_subscription(CompressedImage, camera_topic + '/compressed', self._on_compressed,
+                                 qos_profile_sensor_data, callback_group=cb)
         self.create_subscription(DetectedObjectArray, '/aris3/detected_objects', self._on_objects, 10,
+                                 callback_group=cb)
+        # 픽셀 좌표 검출 (scripts/aris3_color_detector.py). world 좌표가 아니므로 화면 표시에만 쓴다.
+        self.create_subscription(DetectedObjectArray, '/aris3/vision/detections_px', self._on_px_objects, 10,
                                  callback_group=cb)
         self.create_subscription(TaskStatus, '/aris3/task_status', self._on_status, 10, callback_group=cb)
         self.create_subscription(VoiceCommand, '/aris3/voice_command', self._on_voice, 10, callback_group=cb)
         self.create_subscription(String, '/aris3/voice/state', self._on_voice_state, 10, callback_group=cb)
+        self.create_subscription(HandGesture, '/aris3/gesture', self._on_gesture, 10, callback_group=cb)
+        self.create_subscription(String, '/aris3/gesture/state', self._on_gesture_state, 10, callback_group=cb)
         self.create_subscription(Log, '/rosout', self._on_rosout, 100, callback_group=cb)
 
         self.task_client = ActionClient(self, ExecuteTask, '/aris3/execute_task', callback_group=cb)
@@ -128,8 +147,26 @@ class GuiNode(Node):
     def _on_image(self, m):
         with self.lock:
             self.image = (m.width, m.height, m.encoding, bytes(m.data))
+            self.image_seq += 1
             self.image_frame = m.header.frame_id
         self.cam_rate.tick()
+
+    def _on_compressed(self, m):
+        # 풀기는 ROS 콜백 스레드에서 한다 (Qt 화면 스레드를 막지 않게)
+        img = cv2.imdecode(np.frombuffer(bytes(m.data), np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return
+        h, w = img.shape[:2]
+        with self.lock:
+            self.image = (w, h, 'bgr8', img.tobytes())
+            self.image_seq += 1
+            self.image_frame = m.header.frame_id
+        self.cam_rate.tick()
+
+    def _on_px_objects(self, m):
+        with self.lock:
+            self.px_objects = list(m.objects)
+        self.px_rate.tick()
 
     def _on_objects(self, m):
         with self.lock:
@@ -164,6 +201,15 @@ class GuiNode(Node):
 
     def log(self, level, text):
         self._add_log(level, 'gui', text)
+        # 화면 로그와 같은 내용을 ~/.ros/log 파일에도 남긴다 (나중에 원인 찾기용, /rosout 으로는 보내지 않음)
+        # rclpy 는 「같은 줄」 에서 다른 수준으로 기록하면 ValueError 를 낸다 -> 수준마다 다른 줄에서 부른다
+        lg = self.get_logger()
+        if level == 'WARN':
+            lg.warning(text)
+        elif level in ('ERROR', 'FATAL'):
+            lg.error(text)
+        else:
+            lg.info(text)
 
     # ================================================================== 상태 읽기
     def tcp_pose(self, tcp_offset=0.105):
@@ -193,15 +239,27 @@ class GuiNode(Node):
         except Exception:  # noqa: BLE001
             return None
 
+    def _on_gesture(self, m):
+        with self.lock:
+            self.gesture, self.gesture_time = m, time.time()
+
+    def _on_gesture_state(self, m):
+        with self.lock:
+            self.gesture_state = m.data
+        self.gesture_rate.tick()
+
     def snapshot(self):
         with self.lock:
             return {
                 'joints': dict(self.joints),
                 'image': self.image,
+                'image_seq': self.image_seq,
                 'objects': list(self.objects),
                 'task_status': self.task_status,
                 'voice': self.voice,
                 'voice_state': self.voice_state,
+                'gesture': self.gesture if time.time() - self.gesture_time < 0.5 else None,
+                'gesture_state': self.gesture_state,
                 'feedback': self.feedback,
                 'stage_state': dict(self.stage_state),
                 'stage_time': dict(self.stage_time),
@@ -217,30 +275,38 @@ class GuiNode(Node):
             'joint_states': self.js_rate.fresh(1.0),
             'js_hz': self.js_rate.hz(),
             'camera_hz': self.cam_rate.hz(),
+            'px_detections': self.px_rate.fresh(2.0),
             'detections': self.det_rate.fresh(2.0),
             'gripper': self.gripper_client.service_is_ready(),
             'moveit': self.move_client.server_is_ready(),
             'task_manager': self.task_client.server_is_ready(),
             'voice': self.voice_rate.fresh(3.0),
+            'gesture': self.gesture_rate.fresh(3.0),
         }
 
     # ================================================================== 작업 (ExecuteTask)
-    def send_task(self, color, zone, dry_run=False, shape=''):
+    def send_task(self, color, zone, dry_run=False, shape='', target_id='', place_xy=None):
+        """작업 요청. target_id 가 있으면 색 대신 그 물체, place_xy 가 있으면 구역 대신 그 좌표 (world [m])."""
         if self.task_running:
             self.log('WARN', '이미 작업 중 - 요청 무시')
             return False
         if not self.task_client.server_is_ready():
             self.log('ERROR', 'Task Manager(/aris3/execute_task) 없음')
             return False
-        goal = ExecuteTask.Goal(task_type='pick_place', target_color=color, target_shape=shape,
-                                destination=zone, dry_run=dry_run)
+        goal = ExecuteTask.Goal(task_type='pick_place', target_color=color or '', target_shape=shape,
+                                destination=zone or '', dry_run=dry_run, target_id=target_id or '')
+        if place_xy is not None:
+            goal.use_place_position = True
+            goal.place_position.x, goal.place_position.y = float(place_xy[0]), float(place_xy[1])
         with self.lock:
             self.task_running = True
             self.stage_state = {s: '' for s in STAGES}
             self.stage_time = {s: 0.0 for s in STAGES}
             self.feedback = None
             self.last_result = None
-        self.log('INFO', f'작업 요청: {color} -> {zone}' + (' (dry_run)' if dry_run else ''))
+        what = target_id or color
+        where = f'({place_xy[0]:.3f}, {place_xy[1]:.3f})' if place_xy is not None else f'구역 {zone}'
+        self.log('INFO', f'작업 요청: {what} -> {where}' + (' (dry_run)' if dry_run else ''))
         fut = self.task_client.send_goal_async(goal, feedback_callback=self._on_feedback)
         fut.add_done_callback(self._on_goal_response)
         return True
