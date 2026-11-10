@@ -69,8 +69,7 @@ def main(argv=None):
         backend = RealBackend(node, ns=a.ns, host=a.host, z_min=a.z_min, voice=not a.no_voice,
                               gesture=not a.no_gesture)
     else:
-        backend = SimBackend(node, grasp_assist=not a.no_assist, voice=not a.no_voice,
-                              gesture=not a.no_gesture)
+        backend = SimBackend(node, grasp_assist=not a.no_assist, voice=not a.no_voice)
     w = ControlStation(node, backend)
     w.resize(1680, 980)
     w.show()
