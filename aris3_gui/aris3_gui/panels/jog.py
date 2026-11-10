@@ -9,12 +9,14 @@ from aris3_gui.panels.common import ARM_TIMEOUT_SEC, BAD_COLOR, HOME_DEG_REAL, W
 
 
 class JogMixin:
+    """수동 조작 패널 mixin: 조작 허용(2분 잠금), TCP·관절 조그, 손으로 움직이기, 복구 후 홈."""
     def _jog_panel(self):
+        """수동 조작 패널 화면 구성 (실물이면 손으로 움직이기·복구 후 홈 줄을 더한다)."""
         box = QGroupBox('수동 조작 (Manual Jog)')
         v = QVBoxLayout(box)
         self.chk_arm = nofocus(QCheckBox('조작 허용 (주변이 비었을 때만)'))
-        self.chk_arm.toggled.connect(lambda on: (setattr(self, 'last_cmd_time', time.time()),
-                                                 self.node.log('INFO', '조작 허용 켬' if on else '조작 잠금')))
+        self.chk_arm.toggled.connect(self._on_arm_toggled)
+        self._arm_sent_at = 0.0         # 브리지에 조작 허용을 마지막으로 보낸 시각 (상태 맞추기 유예용)
         arm_row = QHBoxLayout()
         arm_row.addWidget(self.chk_arm)
         # 실물: 수동 모드 = 팔 끝 콕핏의 직접 교시 버튼을 누른 채 손으로 팔을 끌기 (보정 점 찍기를 빠르게)
@@ -93,15 +95,42 @@ class JogMixin:
         v.addWidget(self.lbl_jog_reason)
         return box
 
+    def _on_arm_toggled(self, on):
+        """「조작 허용」 체크가 바뀜: 잠금 시계를 다시 세고, 실물이면 브리지 쪽 조작 허용도 같게 한다."""
+        self.last_cmd_time = time.time()
+        self.node.log('INFO', '조작 허용 켬' if on else '조작 잠금')
+        self._arm_sent_at = time.monotonic()
+        self.backend.set_armed(on)
+
+    def _sync_arm_with_bridge(self):
+        """실물: 브리지가 조작 허용을 스스로 잠갔으면(시간 초과·손으로 움직이기·접속 끊기) 화면 체크도 끈다.
+
+        보낸 직후에는 상태 토픽이 아직 예전 값이라 1.5 초 동안은 맞추지 않는다 (켜자마자 꺼지지 않게).
+        """
+        st = self.backend.bridge.state()
+        if st is None or time.monotonic() - self._arm_sent_at < 1.5:
+            return
+        if self.chk_arm.isChecked() and not st.armed:
+            self.chk_arm.blockSignals(True)             # 브리지는 이미 잠겼으므로 다시 보내지 않는다
+            self.chk_arm.setChecked(False)
+            self.chk_arm.blockSignals(False)
+            self.node.log('INFO', '실물 브리지가 조작 허용을 잠금 (시간 초과·손으로 움직이기·접속 끊기)')
+        elif not self.chk_arm.isChecked() and st.armed:
+            self._arm_sent_at = time.monotonic()        # 화면은 잠겼는데 브리지는 허용 -> 브리지도 잠근다
+            self.backend.set_armed(False)
+
     def _jog_tcp(self, axis, sign):
+        """TCP 를 축(axis 0 X / 1 Y / 2 Z) 방향으로 스텝만큼 (sign = +1 / -1). 조작 허용 검사 후 백엔드로."""
         if self._arm_ok('TCP 이동'):
             self.backend.jog_tcp(axis, sign * self.cmb_step.currentData(), self.sld_speed.value())
 
     def _jog_joint(self, i, sign):
+        """관절 i 를 스텝만큼 (sign = +1 / -1). 조작 허용 검사 후 백엔드로."""
         if self._arm_ok('관절 이동'):
             self.backend.jog_joint(i, sign * self.cmb_step.currentData(), self.sld_speed.value())
 
     def _recover_home(self):
+        """「복구 후 홈」: 조작 허용·집기 순서 확인 -> 확인창 -> 안전 정지 해제/서보 켜기 -> 자동 모드 -> 홈."""
         if not self.chk_arm.isChecked():
             self.node.log('WARN', '복구 후 홈: 「조작 허용」 을 먼저 체크하세요')
             return
@@ -118,6 +147,7 @@ class JogMixin:
         self.backend.recover_and_home(self.sld_speed.value())
 
     def _toggle_hand_guide(self, on):
+        """「손으로 움직이기」 체크: 켤 때는 확인창. 실제 모드는 주기 갱신이 로봇 상태로 다시 맞춘다."""
         manual, switching, _name = self.backend.hand_guide_state()
         self.chk_hand.setChecked(bool(manual))          # 실제 모드는 주기 갱신이 다시 맞춘다
         if switching:
@@ -154,7 +184,8 @@ class JogMixin:
             bad = st not in ('대기', '이동 중')
             self.lbl_robot_state.setText(f'로봇 상태: {st}')
             self.lbl_robot_state.setStyleSheet(f'color:{BAD_COLOR}' if bad else '')
-            self.btn_recover.setEnabled(b.link.cli_control.service_is_ready() and not b.link.recovering)
+            self.btn_recover.setEnabled(b.can_recover())
+            self._sync_arm_with_bridge()
             manual, switching, name = b.hand_guide_state()
             self.chk_hand.blockSignals(True)
             self.chk_hand.setChecked(bool(manual))

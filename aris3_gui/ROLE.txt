@@ -27,7 +27,10 @@ CHALLENGE (Windows MARK1 PC 를 쓰지 않기로 하면서 통합 관제 화면�
 매번 확인창 + 「조작 허용」 필요. 실물 마이크 시험은 아직.
 같은 날 손짓(aris3_gesture, MediaPipe) 연결 - ☝ 1초 = 큐브/빈 자리 선택, ☝→✊ 집기, ☝→🖐 고른 자리에 놓기.
 실물에서도 놓을 자리(빈 곳 클릭·손짓)와 「이거 저기로 옮겨줘」(집어서 옮기기) 지원. 실물 손 시험은 아직.
-2026-11-10: 실물 음성·손짓 Pick & Place 시험 완료 (정상 동작 확인).
+2026-11-10: 실물 음성·손짓 Pick & Place 시험 완료 (정상 동작 확인). 이 시점 = 태그 v1-pyqt.
+2026-11-10 (feat/qt-gui): 실물 모드가 로봇에 직접 붙지 않고 aris3_real_bridge 노드를 부른다 (C++ GUI ARIS 와 공용).
+GUI 가 브리지를 함께 띄우고(이미 돌고 있으면 그것을 씀), 「조작 허용」 은 브리지와 맞춘다. 손짓 선택·확정 판단은
+aris3_gesture 가 GestureEvent 로 준다. 로봇 없이 GUI+브리지 통합 확인 12/12. ※ 이 구조로 실물 재시험은 아직.
 
 [참고]
 - 실행: ros2 run aris3_gui control_station [--mode real]   README.md 참고

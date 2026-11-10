@@ -1,39 +1,39 @@
 """실물 E0509: 카메라 보정·집기 패널, 손짓(MediaPipe), 실물 음성 명령.
 
-보정과 집기 순서 자체는 aris3_real_bridge/real_pick.py (PixelCalibration, PickSequence) 에 있다.
-이 패널은 큐브·놓을 자리 선택(클릭·손짓), 확인창, 「조작 허용」 검사를 맡는다.
+2026-11-10: 보정·집기 순서는 aris3_real_bridge 노드가 실행한다 (예전에는 이 GUI 안에서 직접 실행).
+이 패널은 큐브·놓을 자리 선택(클릭·손짓), 확인창, 「조작 허용」 검사를 맡고, 실행은 브리지 액션으로 보낸다.
+  self.calib  : 상태 토픽의 보정으로 픽셀 -> 로봇 좌표를 계산하는 보기 (real_client.StateCalibration)
+  self.picker : 집기 순서 진행 여부·잡았는지 보기 (real_client.StatePicker)
+손짓의 「가리키고 멈추기 = 선택」, 「가리킴 -> 주먹/펼침 = 확정」 판단은 aris3_gesture 노드가 GestureEvent 로 준다.
 """
 import math
-import time
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from aris3_gui.panels.common import HOME_DEG_REAL, nofocus
-from aris3_real_bridge.real_pick import PickSequence, PixelCalibration
 from aris3_gui.widgets import COLOR_KO
+from aris3_interfaces.action import RealPickPlace
+from aris3_interfaces.msg import GestureEvent
+from aris3_interfaces.srv import RealCalibration
 
-# 손짓 (실물, MediaPipe): 가리키고 이 시간 동안 이 반경 안에 멈추면 선택
-GESTURE_HOLD_SEC = 1.0
-GESTURE_HOLD_RADIUS_PX = 25
+PP = RealPickPlace.Goal          # 집기 종류 상수 (PICK, PLACE_AT ...)
+CAL = RealCalibration.Request    # 보정 명령 상수 (REMEMBER, RECORD ...)
 CUBE_SELECT_PX = 40          # 클릭: 이 거리 안의 검출 큐브를 고름
 CUBE_SELECT_GESTURE_PX = 60  # 손짓: 손끝이 큐브를 가리지 않게 조금 옆을 가리켜도 고름
 GESTURE_KO = {'point': '☝ 가리킴', 'fist': '✊ 주먹', 'open': '🖐 펼침'}
 
 
 class RealPickMixin:
+    """실물 집기 패널 mixin: 큐브·놓을 자리 고르기, 확인창, 브리지에 집기·보정 요청 보내기."""
     def _real_pick_panel(self):
-        """실물: 카메라 픽셀 -> 로봇 좌표 보정(손으로 가르쳐 주기)과 큐브 집기. real_pick.py 참고."""
-        self.calib = PixelCalibration()
-        self.picker = PickSequence(self.backend.link, lambda s: self.node.log('INFO', f'[집기] {s}'))
+        """실물: 카메라 픽셀 -> 로봇 좌표 보정(손으로 가르쳐 주기)과 큐브 집기. 실행은 aris3_real_bridge."""
+        self.bridge = self.backend.bridge           # real_client.RealBridgeClient
+        self.calib = self.bridge.calib              # 보정 보기 (브리지 상태)
+        self.picker = self.bridge.picker            # 집기 순서 보기 (브리지 상태)
         self.pick_px = None                         # 고른 큐브의 영상 픽셀 (u, v)
         self.pick_name = ''
-        self.calib_px = None                        # 보정 ① 에서 기억한 픽셀
-        try:
-            self.calib.load()
-            self.node.log('INFO', f'카메라 보정 불러옴: {self.calib.summary()}')
-        except (OSError, ValueError, KeyError):
-            pass
+        self._calib_text = ''                       # 마지막으로 그린 보정 요약 (바뀔 때만 다시 그림)
         box = QGroupBox('실물 집기 · 카메라 보정 (Real Pick)')
         v = QVBoxLayout(box)
         self.lbl_pick = QLabel('카메라 화면에서 큐브를 클릭하세요')
@@ -47,7 +47,7 @@ class RealPickMixin:
         b2.setToolTip('조그로 그리퍼를 그 큐브를 집는 자세(손가락 사이에 큐브)까지 내린 뒤 누르세요')
         b2.clicked.connect(self._calib_record)
         b3 = nofocus(QPushButton('마지막 점 삭제'))
-        b3.clicked.connect(lambda: (self.calib.remove_last(), self._calib_changed()))
+        b3.clicked.connect(lambda: self.bridge.calibration(CAL.REMOVE_LAST))
         b4 = nofocus(QPushButton('보정 저장'))
         b4.clicked.connect(self._calib_save)
         g.addWidget(b1, 0, 0)
@@ -109,6 +109,7 @@ class RealPickMixin:
         self._update_pick_label()
 
     def _update_pick_label(self):
+        """고른 큐브·놓을 자리의 픽셀과 (보정이 있으면) 로봇 좌표를 패널 글자로 보여 준다."""
         lines = []
         if self.pick_px is None:
             lines.append('고른 큐브: — (카메라 화면에서 큐브를 클릭하거나 손으로 가리키세요)')
@@ -135,6 +136,7 @@ class RealPickMixin:
         return self.calib.to_robot(*self.place_px)
 
     def _place_selected(self, *_, heard=''):
+        """「고른 자리에 놓기」: 조작 허용·순서 진행·놓을 자리 확인 -> 확인창 -> 브리지 PLACE_AT. heard: 음성/손짓 문장."""
         if not self._arm_ok('고른 자리에 놓기'):
             return
         if self.picker.running:
@@ -147,40 +149,38 @@ class RealPickMixin:
         hold = {True: '', False: '\n※ 마지막 집기에서 빈손으로 판단됨', None: ''}[self.picker.holding]
         if self._ask('고른 자리에 놓기', f'{said}로봇 X {xy[0]:.0f}, Y {xy[1]:.0f} mm 위로 가서 내려놓습니다.{hold}'
                                        '\n\n로봇 주변(손 포함)이 비었습니까?'):
-            self.picker.place_at(xy[0], xy[1], self.calib.grasp_z)
+            self.bridge.pick_place(PP.PLACE_AT, '고른 자리에 놓기', place_px=self.place_px)
             self.place_px = None
             self._update_pick_label()
 
-    # ---- 손짓 (MediaPipe, /aris3/gesture)
+    # ---- 손짓 (MediaPipe: /aris3/gesture 매 영상, /aris3/gesture/event 선택·확정)
     def _gesture_tick(self, g):
-        """100 ms 마다: 포인터 표시, 가리키고 멈춤 -> 선택, ☝ 에서 ✊/🖐 로 바뀌는 순간 -> 확정."""
+        """100 ms 마다: 손 포인터·진행 링을 그리고, aris3_gesture 가 보낸 선택·확정 이벤트를 처리한다.
+
+        확인창이 떠 있거나 「손짓 사용」 이 꺼져 있으면 이벤트는 버린다 (확인창 위에 새 확인창을 띄우지 않게).
+        """
         cam = self.camera
+        events = self.node.pop_gesture_events()
         if not self.chk_gesture.isChecked() or g is None or not g.hand_present:
             cam.pointer, cam.pointer_progress, cam.pointer_text = None, 0.0, ''
-            self.g_hold, self.g_last = None, ''
             self.lbl_gesture.setText('손짓: 손 없음' if self.chk_gesture.isChecked() else '손짓: 꺼짐')
             return
-        u, v, now, gest = g.tip_u, g.tip_v, time.time(), g.gesture
+        u, v, gest = g.tip_u, g.tip_v, g.gesture
         cam.pointer = (u, v)
         cam.pointer_text = GESTURE_KO.get(gest, '…')
+        cam.pointer_progress = float(g.hold_progress)       # 가리키고 멈추기 진행 (노드가 계산)
         self.lbl_gesture.setText(f'손짓: {GESTURE_KO.get(gest, "모름")}  (손끝 {u:.0f}, {v:.0f})')
-        if gest == 'point':
-            if self.g_hold is None or math.hypot(u - self.g_hold[0], v - self.g_hold[1]) > GESTURE_HOLD_RADIUS_PX:
-                self.g_hold, self.g_fired = (u, v, now), False
-            prog = min(1.0, (now - self.g_hold[2]) / GESTURE_HOLD_SEC)
-            cam.pointer_progress = 0.0 if self.g_fired else prog
-            if prog >= 1.0 and not self.g_fired and not self._dialog_open:
-                self.g_fired = True
-                self._select_pixel(self.g_hold[0], self.g_hold[1], CUBE_SELECT_GESTURE_PX, '손짓')
-        else:
-            self.g_hold, cam.pointer_progress = None, 0.0
-        # 확정: 가리키다가(☝) 주먹/펼침으로 바뀐 순간 한 번만. 손이 처음부터 주먹이면 아무것도 안 함
-        if gest in ('fist', 'open') and self.g_last == 'point' and not self._dialog_open and not self.picker.running:
-            QTimer.singleShot(0, lambda gg=gest: self._gesture_confirm(gg))
-        if gest:
-            self.g_last = gest
+        for ev in events:
+            if self._dialog_open:
+                continue
+            if ev.type == GestureEvent.SELECT:              # 가리키고 1초 멈춤 -> 큐브 또는 놓을 자리 고르기
+                self._select_pixel(ev.u, ev.v, CUBE_SELECT_GESTURE_PX, '손짓')
+            elif not self.picker.running:                   # 확정 -> 확인창 (주기 갱신 밖에서 연다)
+                gg = 'fist' if ev.type == GestureEvent.CONFIRM_PICK else 'open'
+                QTimer.singleShot(0, lambda gg=gg: self._gesture_confirm(gg))
 
     def _gesture_confirm(self, gest):
+        """손짓 확정: 주먹 = 고른 큐브 집기, 펼침 = 고른 자리에 놓기 (둘 다 확인창을 거침)."""
         if gest == 'fist':
             if self.pick_px is None:
                 self.node.log('WARN', '손짓 ✊: 집을 큐브를 먼저 가리키세요 (☝ 1초)')
@@ -189,50 +189,30 @@ class RealPickMixin:
         else:
             self._place_selected(heard='손짓: ☝ → 🖐 펼침 (고른 자리에 놓기)')
 
-    # ---- 카메라 보정 (① 픽셀 기억 -> ② 로봇 위치 기록)
+    # ---- 카메라 보정 (① 픽셀 기억 -> ② 로봇 위치 기록) - 브리지 서비스, 결과는 로그·상태 토픽
     def _calib_remember(self):
+        """보정 ①: 고른 큐브의 지금 픽셀을 브리지가 기억 (브리지가 가장 가까운 검출로 다시 읽음)."""
         if self.pick_px is None:
             self.node.log('WARN', '보정 ①: 먼저 카메라 화면에서 큐브를 클릭하세요')
             return
-        # 클릭한 뒤 큐브가 움직였을 수 있으니 같은 이름(없으면 가장 가까운) 검출의 지금 위치로 갱신
-        px = list(self.node.px_objects) if self.node.px_rate.fresh(2.0) else []
-        near = min(px, key=lambda o: math.hypot(o.pose.pose.position.x - self.pick_px[0],
-                                                o.pose.pose.position.y - self.pick_px[1]), default=None)
-        if near is None:
-            self.node.log('WARN', '보정 ①: 지금 카메라에 큐브가 보이지 않음 (가려지지 않았는지 확인)')
-            return
-        self.calib_px = (near.pose.pose.position.x, near.pose.pose.position.y)
-        self.camera.marker_px = self.calib_px
-        self.node.log('INFO', f'보정 ①: {near.id or near.color} 픽셀 ({self.calib_px[0]:.1f}, {self.calib_px[1]:.1f}) '
-                      '기억 → 조그로 그리퍼를 그 큐브를 집는 자세까지 내린 뒤 ②')
+        self.bridge.calibration(CAL.REMEMBER, u=self.pick_px[0], v=self.pick_px[1])
 
     def _calib_record(self):
-        if self.calib_px is None:
-            self.node.log('WARN', '보정 ②: 먼저 ① 로 큐브 픽셀을 기억하세요')
-            return
-        p = self.backend.link.posx
-        if p is None or not self.backend.connected():
-            self.node.log('WARN', '보정 ②: 로봇 TCP 좌표를 읽지 못함 (접속 확인)')
-            return
-        self.calib.add(self.calib_px[0], self.calib_px[1], p[0], p[1], p[2], label=self.pick_name)
-        self.node.log('INFO', f'보정 ②: 점 {len(self.calib.points)} 픽셀 ({self.calib_px[0]:.1f}, {self.calib_px[1]:.1f})'
-                      f' -> TCP ({p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}) mm')
-        self.calib_px = None
-        self.camera.marker_px = None
-        self._calib_changed()
-
-    def _calib_changed(self):
-        self.lbl_calib.setText(self.calib.summary())
-        if self.calib.ready():
-            pts = '  '.join(f'{i + 1}:{e:.1f}' for i, e in enumerate(self.calib.errors_mm))
-            self.node.log('INFO', f'보정: {self.calib.summary()}  점별 오차 mm {pts}')
-        self._update_pick_label()
+        """보정 ②: 조그로 집는 자세까지 내린 지금 TCP 를 ① 의 픽셀과 짝지어 기록."""
+        self.bridge.calibration(CAL.RECORD, label=self.pick_name)
 
     def _calib_save(self):
-        if not self.calib.points:
-            self.node.log('WARN', '보정 저장: 기록한 점이 없음')
-            return
-        self.node.log('INFO', f'보정 저장: {self.calib.save()}')
+        """보정 저장 (~/.config/aris3/real_camera_calib.json, 브리지 PC 에)."""
+        self.bridge.calibration(CAL.SAVE)
+
+    def _refresh_real_pick(self):
+        """100 ms 마다: 보정 요약·① 표시를 브리지 상태로 갱신 (요약이 바뀌면 고른 큐브의 좌표도 다시 그림)."""
+        text = self.calib.summary()
+        if text != self._calib_text:
+            self._calib_text = text
+            self.lbl_calib.setText(text)
+            self._update_pick_label()
+        self.camera.marker_px = self.calib.pending_px()
 
     # ---- 집기 · 놓기
     def _pick_target(self, what):
@@ -259,20 +239,23 @@ class RealPickMixin:
         return x, y, self.calib.grasp_z
 
     def _pick_hover(self):
+        """「큐브 위로」: 고른 큐브 위 접근 높이로만 가서 멈춤 (집기 전 위치 확인용, 확인창 없음)."""
         if self._arm_ok('큐브 위로'):
             t = self._pick_target('큐브 위로')
             if t:
-                self.picker.hover(*t)
+                self.bridge.pick_place(PP.HOVER, '큐브 위로', self.pick_name, target_px=self.pick_px)
 
     def _pick_run(self, *_, heard=''):
+        """「집기」: 확인창(좌표·집는 높이 표시) -> 브리지 PICK. heard: 음성/손짓 문장."""
         if self._arm_ok('집기'):
             t = self._pick_target('집기')
             said = f'{heard}\n\n' if heard else ''
             if t and self._ask('집기', f'{said}{self.pick_name} 을(를) 집습니다.\n로봇 좌표 X {t[0]:.0f}, Y {t[1]:.0f} mm, '
                                f'집는 높이 Z {t[2]:.0f} mm\n\n먼저 「큐브 위로」 로 위치를 확인했습니까?'):
-                self.picker.pick(*t)
+                self.bridge.pick_place(PP.PICK, '집기', self.pick_name, target_px=self.pick_px)
 
     def _pick_place(self, *_, heard=''):
+        """「여기 내려놓기」: 지금 위치 아래로 놓고 위로. 음성으로 왔을 때만 확인창."""
         if not self._arm_ok('내려놓기'):
             return
         if not self.calib.ready():
@@ -281,9 +264,10 @@ class RealPickMixin:
         if heard and not self._ask('내려놓기', f'{heard}\n\n지금 위치 바로 아래로 내려놓고 위로 빠집니다. '
                                               '실행할까요?'):
             return
-        self.picker.place_here(self.calib.grasp_z)
+        self.bridge.pick_place(PP.PLACE_HERE, '여기 내려놓기')
 
     def _pick_and_place(self, heard=''):
+        """「집어서 옮기기」(이거 저기로 옮겨줘): 확인창 -> 브리지 PICK_AND_PLACE (잡지 못하면 옮기지 않음)."""
         if not self._arm_ok('집어서 옮기기'):
             return
         xy = self._place_target('집어서 옮기기')
@@ -293,7 +277,8 @@ class RealPickMixin:
         if t and self._ask('집어서 옮기기', f'{heard}\n\n{self.pick_name} 을(를) 로봇 X {t[0]:.0f}, Y {t[1]:.0f} mm 에서 '
                                        f'집어\nX {xy[0]:.0f}, Y {xy[1]:.0f} mm 에 놓습니다. (잡지 못하면 옮기지 않음)'
                                        '\n\n로봇 주변(손 포함)이 비었습니까?'):
-            self.picker.pick_and_place(t[0], t[1], t[2], xy[0], xy[1])
+            self.bridge.pick_place(PP.PICK_AND_PLACE, '집어서 옮기기', self.pick_name, target_px=self.pick_px,
+                                   place_px=self.place_px)
             self.place_px = None
             self._update_pick_label()
 

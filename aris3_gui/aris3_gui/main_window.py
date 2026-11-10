@@ -147,8 +147,6 @@ class ControlStation(HeaderMixin, StatusMixin, CameraMixin, TaskQueueMixin, Voic
         snap = n.snapshot()
         s = n.status_flags()
         b = self.backend
-        if hasattr(b, 'pump_logs'):
-            b.pump_logs()
         if self._pending_next:
             self._pending_next = False
             self._next_task()
@@ -157,6 +155,7 @@ class ControlStation(HeaderMixin, StatusMixin, CameraMixin, TaskQueueMixin, Voic
         self._refresh_system(snap, s)
         if b.mode == 'real':
             self._gesture_tick(snap['gesture'])
+            self._refresh_real_pick()
         self._refresh_robot(snap)
         self._refresh_views(snap, s)
         self._refresh_camera_info(n.camera_transform())

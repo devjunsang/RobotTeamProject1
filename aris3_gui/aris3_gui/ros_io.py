@@ -35,13 +35,15 @@ from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
 from aris3_interfaces.action import ExecuteTask
-from aris3_interfaces.msg import DetectedObjectArray, HandGesture, TaskStatus, VoiceCommand
+from aris3_interfaces.msg import DetectedObjectArray, GestureEvent, HandGesture, TaskStatus, VoiceCommand
 from aris3_interfaces.srv import GripperCommand
 
 ARM_JOINTS = [f'joint_{i}' for i in range(1, 7)]
 HOME_DEG = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]          # Task Manager 관찰 자세와 같음
 STAGES = ['VALIDATE', 'OBSERVE', 'PERCEIVE', 'PLAN', 'PICK', 'PLACE', 'VERIFY']
-LOG_NODES = ('aris3', 'task_manager')   # 'ARIS3 로그만' 에서 INFO 까지 보여 줄 노드 (나머지는 WARN 이상만)
+# 'ARIS3 로그만' 에서 INFO 까지 보여 줄 노드 (나머지는 WARN 이상만).
+# e0509_manual: 실물 브리지 안의 RobotLink 로그 (2026-11-10, 예전에는 GUI 가 직접 옮겨 적었음)
+LOG_NODES = ('aris3', 'task_manager', 'e0509_manual')
 
 # 수동 조작 제한 (e0509_manual/robot_link.py 의 실물 한계와 같은 값)
 MAX_JOINT_STEP_DEG = 10.0
@@ -92,6 +94,7 @@ class GuiNode(Node):
         self.gesture_time = 0.0     # 받은 시각 (time.time)
         self.gesture_state = ''
         self.gesture_rate = RateMeter()
+        self.gesture_events = deque(maxlen=20)  # GestureEvent (선택·확정) - GUI 가 100 ms 마다 꺼내 쓴다
         self.logs = deque(maxlen=400)   # (seq, level, name, text)
         self.log_seq = 0
 
@@ -126,6 +129,7 @@ class GuiNode(Node):
         self.create_subscription(String, '/aris3/voice/state', self._on_voice_state, 10, callback_group=cb)
         self.create_subscription(HandGesture, '/aris3/gesture', self._on_gesture, 10, callback_group=cb)
         self.create_subscription(String, '/aris3/gesture/state', self._on_gesture_state, 10, callback_group=cb)
+        self.create_subscription(GestureEvent, '/aris3/gesture/event', self._on_gesture_event, 10, callback_group=cb)
         self.create_subscription(Log, '/rosout', self._on_rosout, 100, callback_group=cb)
 
         self.task_client = ActionClient(self, ExecuteTask, '/aris3/execute_task', callback_group=cb)
@@ -242,6 +246,18 @@ class GuiNode(Node):
     def _on_gesture(self, m):
         with self.lock:
             self.gesture, self.gesture_time = m, time.time()
+
+    def _on_gesture_event(self, m):
+        """손짓 확정 이벤트를 쌓아 둔다 (선택·확정 판단은 aris3_gesture 노드가 함, 2026-11-10)."""
+        with self.lock:
+            self.gesture_events.append(m)
+
+    def pop_gesture_events(self):
+        """쌓인 손짓 이벤트를 모두 꺼낸다 (한 번 꺼낸 이벤트는 다시 나오지 않음)."""
+        with self.lock:
+            out = list(self.gesture_events)
+            self.gesture_events.clear()
+        return out
 
     def _on_gesture_state(self, m):
         with self.lock:

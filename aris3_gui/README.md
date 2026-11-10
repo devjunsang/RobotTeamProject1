@@ -17,7 +17,7 @@
 source ~/ros2_ws/install/setup.bash
 ros2 run aris3_gui control_station              # 시뮬레이션 모드: 「Connect」 = Gazebo -> MoveIt -> Task Manager -> 음성
 ros2 run aris3_gui control_station --no-assist  # 순수 마찰 파지 (물체 붙이기 보조 끔)
-ros2 run aris3_gui control_station --mode real  # 실물 E0509 (etc/e0509_manual 의 접속·안전 코드 사용)
+ros2 run aris3_gui control_station --mode real  # 실물 E0509 (aris3_real_bridge 를 함께 띄워 그 노드로 움직임)
 ```
 
 이미 다른 터미널에서 시뮬레이션을 띄웠다면 GUI 는 그것을 그대로 쓴다 (「외부에서 실행한 시뮬레이션」).
@@ -63,7 +63,7 @@ python3 -m pip --python ~/venvs/mark1_voice/bin/python install faster-whisper "n
 | ├ `real_pick_panel.py` | 실물: 카메라 보정·집기, 손짓(MediaPipe), 실물 음성 명령 |
 | ├ `jog.py` | 수동 조작, 조작 허용, 손으로 움직이기, 복구 후 홈 |
 | └ `log.py` | 로그 |
-| (`aris3_real_bridge/real_pick.py`) | 실물: 픽셀 -> 로봇 좌표 보정(`PixelCalibration`), 집기 순서(`PickSequence`). 2026-11-10 브리지 패키지로 옮김 |
+| `real_client.py` | 실물: `aris3_real_bridge` 서비스·액션 호출과 상태 보기(`StateCalibration`, `StatePicker`). 보정·집기 순서·로봇 안전 검사는 브리지 노드가 실행 |
 | `widgets.py` | 카메라 영상 + 검출 표시(TF + 핀홀 투영), 작업 공간 2D 지도 |
 
 ## 알려진 한계 (2026-11-08)
