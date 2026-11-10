@@ -27,7 +27,10 @@ class StatusMixin:
 
         rob = QGroupBox('로봇 상태 (Robot State)')
         g = QGridLayout(rob)
-        self.lbl_mode = QLabel(f'<b>{"MoveIt 2 (시뮬레이션)" if self.backend.mode == "sim" else "두산 (실물)"}</b>')
+        # 모드 글자: 실물 경로를 가상 컨트롤러로 시험 중이면 「가상」 을 분명히 (실물로 착각하지 않게)
+        mode_text = ('MoveIt 2 (시뮬레이션)' if self.backend.mode == 'sim' else
+                     '두산 가상 컨트롤러 (실물 경로 시뮬레이션)' if '가상' in self.backend.title else '두산 (실물)')
+        self.lbl_mode = QLabel(f'<b>{mode_text}</b>')
         self.lbl_task_state = QLabel('—')
         g.addWidget(QLabel('모드'), 0, 0)
         g.addWidget(self.lbl_mode, 0, 1, 1, 3)
@@ -126,4 +129,5 @@ class StatusMixin:
     def _refresh_camera_info(self, cam_tf):
         self.lbl_cal.setText(('카메라 TF: ' + ('있음' if cam_tf else '없음')) +
                              '\n시뮬레이션: 설치 위치 고정값 (탁자 위 2.0 m, 화각 80°) - 보정 없음'
-                             if self.backend.mode == 'sim' else '실물 카메라 보정: 아직 없음 (D455 연동 예정)')
+                             if self.backend.mode == 'sim' else
+                             '실물 카메라: 픽셀 -> 로봇 좌표 보정 사용 (아래 「실물 집기」 패널, 브리지가 계산)')

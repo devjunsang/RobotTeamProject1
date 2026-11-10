@@ -9,6 +9,7 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python3-pyqt5</exec_depend>
+  <exec_depend>python3-pyqt5.qtsvg</exec_depend>   <!-- ARIS 로고 (SVG) -->
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>aris3_interfaces</exec_depend>

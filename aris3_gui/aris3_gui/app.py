@@ -47,6 +47,9 @@ def main(argv=None):
     ap.add_argument('--no-assist', action='store_true', help='시뮬레이션: 물체 붙이기 보조 끄기 (순수 마찰 파지)')
     ap.add_argument('--no-voice', action='store_true', help='음성 노드를 함께 띄우지 않음 (시뮬레이션·실물 공통)')
     ap.add_argument('--no-gesture', action='store_true', help='실물: 손짓(MediaPipe) 노드를 함께 띄우지 않음')
+    ap.add_argument('--sim', action='store_true',
+                    help='실물 모드를 실물 비슷한 시뮬레이션으로: 두산 가상 컨트롤러 + Gazebo (먼저 '
+                         'ros2 launch aris3_bringup aris3_real_sim.launch.py). --mode real 과 함께')
     ap.add_argument('--host', default='110.120.1.66', help='실물: E0509 컨트롤러 IP')
     ap.add_argument('--ns', default='e0509_real', help='실물: dsr_bringup2 이름')
     ap.add_argument('--z-min', type=float, default=50.0, help='실물: 손끝 최저 높이 [mm]')
@@ -67,7 +70,7 @@ def main(argv=None):
     node, ex = start_node()
     if a.mode == 'real':
         backend = RealBackend(node, ns=a.ns, host=a.host, z_min=a.z_min, voice=not a.no_voice,
-                              gesture=not a.no_gesture)
+                              gesture=not a.no_gesture, virtual=a.sim)
     else:
         backend = SimBackend(node, grasp_assist=not a.no_assist, voice=not a.no_voice)
     w = ControlStation(node, backend)

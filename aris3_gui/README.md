@@ -18,6 +18,7 @@ source ~/ros2_ws/install/setup.bash
 ros2 run aris3_gui control_station              # 시뮬레이션 모드: 「Connect」 = Gazebo -> MoveIt -> Task Manager -> 음성
 ros2 run aris3_gui control_station --no-assist  # 순수 마찰 파지 (물체 붙이기 보조 끔)
 ros2 run aris3_gui control_station --mode real  # 실물 E0509 (aris3_real_bridge 를 함께 띄워 그 노드로 움직임)
+ros2 run aris3_gui control_station --mode real --sim  # 실물 경로를 두산 가상 컨트롤러로 (먼저 aris3_real_sim.launch.py)
 ```
 
 이미 다른 터미널에서 시뮬레이션을 띄웠다면 GUI 는 그것을 그대로 쓴다 (「외부에서 실행한 시뮬레이션」).
@@ -64,6 +65,7 @@ python3 -m pip --python ~/venvs/mark1_voice/bin/python install faster-whisper "n
 | ├ `jog.py` | 수동 조작, 조작 허용, 손으로 움직이기, 복구 후 홈 |
 | └ `log.py` | 로그 |
 | `real_client.py` | 실물: `aris3_real_bridge` 서비스·액션 호출과 상태 보기(`StateCalibration`, `StatePicker`). 보정·집기 순서·로봇 안전 검사는 브리지 노드가 실행 |
+| `assets/aris_mark.svg` | ARIS 엠블럼 (A = 로봇 팔, 시안 = 카메라 시야). 상단 줄 가운데·창 아이콘. C++ GUI 도 `share/aris3_gui/assets` 에서 쓸 수 있음 |
 | `widgets.py` | 카메라 영상 + 검출 표시(TF + 핀홀 투영), 작업 공간 2D 지도 |
 
 ## 알려진 한계 (2026-11-08)

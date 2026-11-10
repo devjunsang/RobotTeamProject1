@@ -20,11 +20,11 @@
 import time
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtGui import QFont, QIcon, QKeySequence
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QMessageBox, QShortcut, QVBoxLayout, QWidget
 
 from aris3_gui.panels.camera import CameraMixin
-from aris3_gui.panels.header import HeaderMixin
+from aris3_gui.panels.header import LOGO_SVG, HeaderMixin
 from aris3_gui.panels.jog import JogMixin
 from aris3_gui.panels.log import LogMixin
 from aris3_gui.panels.real_pick_panel import RealPickMixin
@@ -55,7 +55,9 @@ class ControlStation(HeaderMixin, StatusMixin, CameraMixin, TaskQueueMixin, Voic
         self.node.on_task_done = self._task_done_from_ros
         self._pending_next = False
 
-        self.setWindowTitle(f'ARIS3 Control Station — {backend.title}')
+        self.setWindowTitle(f'ARIS — ARIS3 Control Station — {backend.title}')
+        if LOGO_SVG.is_file():
+            self.setWindowIcon(QIcon(str(LOGO_SVG)))      # 작업 표시줄·창 아이콘도 ARIS 엠블럼
         self.setFont(QFont('NanumSquare', 10))
         self.setStyleSheet(
             'QGroupBox { font-weight: bold; border: 1px solid #cfd8dc; border-radius: 6px; margin-top: 10px; }'
@@ -63,7 +65,7 @@ class ControlStation(HeaderMixin, StatusMixin, CameraMixin, TaskQueueMixin, Voic
             'QPushButton { padding: 4px 10px; }')
 
         root = QVBoxLayout(self)
-        root.addLayout(self._header())
+        root.addWidget(self._header())
         body = QHBoxLayout()
         body.addLayout(self._left_column(), 0)
         right = QVBoxLayout()

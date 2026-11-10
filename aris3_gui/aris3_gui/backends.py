@@ -217,8 +217,15 @@ class RealBackend:
     title = '실물 E0509'
 
     def __init__(self, node, ns='e0509_real', host='110.120.1.66', port=12345, z_min=50.0, rviz=False,
-                 voice=True, gesture=True):
-        """브리지 클라이언트를 만들고 브리지·음성·손짓 노드를 (없으면) 띄운다. rviz 는 예전 호환용 (쓰지 않음)."""
+                 voice=True, gesture=True, virtual=False):
+        """브리지 클라이언트를 만들고 브리지·음성·손짓 노드를 (없으면) 띄운다. rviz 는 예전 호환용 (쓰지 않음).
+
+        virtual=True: 실물 비슷한 시뮬레이션 - 브리지를 두산 가상 컨트롤러(mode:=virtual)와 시뮬레이션 그리퍼
+        서비스(gripper:=service)로 띄운다. 보정 파일도 따로 쓴다 (실물 보정을 덮어쓰지 않게).
+        """
+        if virtual:
+            self.title = '가상 E0509 (실물 경로 시뮬레이션)'      # 화면 제목에 「가상」 을 분명히
+            host = '127.0.0.1'
         from aris3_gui.real_client import RealBridgeClient
         from aris3_interfaces.action import RealMotion
         from aris3_interfaces.msg import RealRobotState
@@ -229,8 +236,9 @@ class RealBackend:
                                       # 실제 노드 프로세스만: 「python3 .../lib/aris3_real_bridge/real_bridge ...」
                                       # (느슨한 패턴은 그 문자열이 들어간 다른 명령줄에도 걸려 브리지를 띄우지 않았다)
                                       r'^\S*python[0-9.]* \S*/lib/aris3_real_bridge/real_bridge( |$)', BRIDGE_LOG, node.log,
-                                      args=[f'ns:={ns}', f'host:={host}', f'port:={port}', f'z_min_mm:={z_min}'])
-        self.bridge_proc.start(f' - {host}, 최저 높이 {z_min:.0f} mm')
+                                      args=[f'ns:={ns}', f'host:={host}', f'port:={port}', f'z_min_mm:={z_min}']
+                                      + (['mode:=virtual', 'gripper:=service'] if virtual else []))
+        self.bridge_proc.start(f' - {"가상 컨트롤러" if virtual else host}, 최저 높이 {z_min:.0f} mm')
         # 로봇과 상관없이 GUI 를 켤 때 띄운다 (모델 로딩이 오래 걸림)
         self.voice = LaunchProc('음성', 'aris3_voice', 'voice.launch.py', 'aris3_voice/voice_node',
                                 VOICE_LOG, node.log)
