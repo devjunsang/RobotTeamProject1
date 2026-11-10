@@ -18,6 +18,7 @@ GUI(aris3_gui PyQt, aris3_gui_cpp ARIS)는 로봇에 직접 붙지 않고 이 �
 거부하고, arm_timeout_s 동안 명령이 없으면 스스로 잠근다. 정지는 armed 와 상관없이 언제나 동작한다.
 """
 import math
+import os
 import threading
 import time
 
@@ -32,7 +33,11 @@ from std_srvs.srv import SetBool, Trigger
 from aris3_interfaces.action import RealMotion, RealPickPlace
 from aris3_interfaces.msg import DetectedObjectArray, RealRobotState
 from aris3_interfaces.srv import RealCalibration
-from aris3_real_bridge.real_pick import PickSequence, PixelCalibration
+from aris3_real_bridge.real_pick import CALIB_PATH, PickSequence, PixelCalibration
+from aris3_real_bridge.virtual import ServiceGripper, make_virtual_bringup
+
+# 가상 모드(시뮬레이션) 보정 파일 - 실물 보정(CALIB_PATH)과 따로 둔다
+SIM_CALIB_PATH = os.path.expanduser('~/.config/aris3/sim_camera_calib.json')
 
 MAX_JOINT_VEL = 45.0          # deg/s - 속도 비율 100 % (RobotLink 도 같은 값으로 자른다)
 MAX_CART_VEL = 100.0          # mm/s
@@ -72,7 +77,7 @@ def hold_code(holding, cls=RealRobotState):
 
 class RealBridge(Node):
     """실물 로봇 브리지 노드. RobotLink·보정·집기 순서를 감싸 /aris3/real/* 서비스·액션·상태 토픽으로 내놓는다."""
-    def __init__(self, link, mgr, conn, state_ko=None):
+    def __init__(self, link, mgr, conn, state_ko=None, calib_path=None, gripper_ready=None):
         """link: RobotLink, mgr: BringupManager, conn: ConnectionController, state_ko: 상태 이름 -> 한국어 표.
 
         시험에서는 가짜 객체를 넣어 로봇 없이 돌린다 (test/test_bridge_node.py).
@@ -84,12 +89,16 @@ class RealBridge(Node):
         self.state_ko = state_ko or {}
         self.arm_timeout = float(self.get_parameter('arm_timeout_s').value)
 
+        # 보정 파일: 실물과 가상 모드는 카메라가 달라 파일을 나눈다 (가상 시험이 실물 보정을 덮어쓰지 않게)
+        self.calib_path = calib_path or CALIB_PATH
+        # 그리퍼가 명령을 받을 수 있는가: 실물 = DRL 서비스, 가상 = /aris3/gripper/command (main 에서 바꿔 줌)
+        self.gripper_ready = gripper_ready or (lambda: link.cli_drl_start.service_is_ready())
         self.calib = PixelCalibration()
         self.picker = PickSequence(link, lambda s: self.get_logger().info(f'[집기] {s}'))
         self.calib_px = None                # 보정 ①: (u, v)
         try:
-            self.calib.load()
-            self.get_logger().info(f'카메라 보정 불러옴: {self.calib.summary()}')
+            self.calib.load(self.calib_path)
+            self.get_logger().info(f'카메라 보정 불러옴 ({self.calib_path}): {self.calib.summary()}')
         except (OSError, ValueError, KeyError):
             self.get_logger().info('카메라 보정 파일 없음 (보정 ① ② 로 점 4개 이상 기록)')
 
@@ -237,10 +246,10 @@ class RealBridge(Node):
             if not c.points:
                 ok, msg = False, '보정 저장: 기록한 점이 없음'
             else:
-                msg = f'보정 저장: {c.save()}'
+                msg = f'보정 저장: {c.save(self.calib_path)}'
         elif req.command == C.LOAD:
             try:
-                c.load()
+                c.load(self.calib_path)
                 msg = f'보정 불러옴: {c.summary()}'
             except (OSError, ValueError, KeyError) as e:
                 ok, msg = False, f'보정 불러오기 실패: {e}'
@@ -469,7 +478,7 @@ class RealBridge(Node):
             m.joints_valid, m.joints_deg = True, [float(v) for v in L.joints_deg[:6]]
         if L.posx is not None:
             m.tcp_valid, m.tcp = True, [float(v) for v in L.posx[:6]]
-        m.gripper_service_ready = bool(L.cli_drl_start.service_is_ready())
+        m.gripper_service_ready = bool(self.gripper_ready())
         m.gripper_running = bool(L.gripper_running)
         m.gripper_result = {None: RealRobotState.GRIPPER_RESULT_UNKNOWN, True: RealRobotState.GRIPPER_RESULT_OK,
                             False: RealRobotState.GRIPPER_RESULT_FAILED}[L.gripper_ok]
@@ -494,6 +503,32 @@ class RealBridge(Node):
         return m
 
 
+def _install_service_gripper(node, link, joint_topic, joint_name, holder):
+    """가상 모드: RobotLink 의 그리퍼를 /aris3/gripper/command 서비스로 바꿔 끼운다 (손가락 각도는 관절 상태에서)."""
+    from aris3_interfaces.srv import GripperCommand
+    from sensor_msgs.msg import JointState
+    cb = ReentrantCallbackGroup()
+    cli = node.create_client(GripperCommand, '/aris3/gripper/command', callback_group=cb)
+    holder['grip_cli'] = cli
+    joint = {'rad': None}
+
+    def on_js(m):
+        """Gazebo 손가락 관절 각도를 기억 (그리퍼 위치 = 잡음/빈손 판정용)."""
+        if joint_name in m.name:
+            joint['rad'] = float(m.position[m.name.index(joint_name)])
+    node.create_subscription(JointState, joint_topic, on_js, 10, callback_group=cb)
+
+    def call(req, timeout):
+        """서비스를 부르고 응답을 기다린다 (작업 스레드에서). 없거나 시간 초과면 None."""
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return None
+        ev = threading.Event()
+        fut = cli.call_async(req)
+        fut.add_done_callback(lambda _f: ev.set())
+        return fut.result() if ev.wait(timeout) else None
+    ServiceGripper(link, call, lambda: joint['rad']).install()
+
+
 def main(args=None):
     """노드 실행: 접속 설정 파라미터를 읽고 RobotLink·BringupManager 를 만든 뒤 브리지를 돌린다.
 
@@ -505,17 +540,41 @@ def main(args=None):
     rclpy.init(args=args)
     # 접속 설정은 이 노드의 파라미터로 받는다 (launch/real_bridge.launch.py)
     cfg = rclpy.create_node('aris3_real_bridge_cfg')
-    for k, v in (('ns', 'e0509_real'), ('host', '110.120.1.66'), ('port', 12345), ('z_min_mm', 50.0)):
+    for k, v in (('ns', 'e0509_real'), ('host', '110.120.1.66'), ('port', 12345), ('z_min_mm', 50.0),
+                 ('mode', 'real'), ('gripper', 'drl'), ('calib_path', ''),
+                 ('gripper_joint_topic', '/e0509_gripper/joint_states'), ('gripper_joint', 'gripper_rh_r1')):
         cfg.declare_parameter(k, v, ANY_TYPE)
-    ns, host = str(cfg.get_parameter('ns').value), str(cfg.get_parameter('host').value)
-    port, z_min = int(cfg.get_parameter('port').value), float(cfg.get_parameter('z_min_mm').value)
+    P = {k: cfg.get_parameter(k).value for k in ('ns', 'host', 'port', 'z_min_mm', 'mode', 'gripper', 'calib_path',
+                                                  'gripper_joint_topic', 'gripper_joint')}
     cfg.destroy_node()
+    ns, host, port, z_min = str(P['ns']), str(P['host']), int(P['port']), float(P['z_min_mm'])
+    mode, gripper = str(P['mode']), str(P['gripper'])
+    # 안전: 가상 전용 부품(시뮬레이션 그리퍼 서비스)은 가상 모드에서만. 실물 로봇에 잘못 붙지 않게 막는다.
+    if mode not in ('real', 'virtual') or gripper not in ('drl', 'service') or (mode == 'real' and gripper != 'drl'):
+        raise SystemExit(f'[aris3_real_bridge] 잘못된 설정: mode={mode}, gripper={gripper} '
+                         '(실물은 mode:=real gripper:=drl, 시뮬레이션은 mode:=virtual gripper:=service)')
+    calib_path = str(P['calib_path']) or (CALIB_PATH if mode == 'real' else SIM_CALIB_PATH)
+    if mode == 'virtual' and os.path.abspath(os.path.expanduser(calib_path)) == os.path.abspath(CALIB_PATH):
+        raise SystemExit('[aris3_real_bridge] 가상 모드에서 실물 보정 파일을 쓰지 않습니다 (덮어쓰기 방지)')
 
     link, link_ex = start_link(ns, z_min)
-    mgr = BringupManager(ns, host, port, rviz=False, log=link.log)
+    if mode == 'virtual':
+        host = '127.0.0.1'
+        mgr = make_virtual_bringup(BringupManager)(ns, host, port, rviz=False, log=link.log)
+    else:
+        mgr = BringupManager(ns, host, port, rviz=False, log=link.log)
     conn = ConnectionController(link, mgr)
-    node = RealBridge(link, mgr, conn, state_ko=STATE_KO)
-    node.get_logger().info(f'로봇 {ns} @ {host}:{port}, 최저 높이 {z_min:.0f} mm')
+    gripper_ready = None
+    node_holder = {}
+    if gripper == 'service':
+        gripper_ready = lambda: node_holder['grip_cli'].service_is_ready()     # noqa: E731
+    node = RealBridge(link, mgr, conn, state_ko=STATE_KO, calib_path=os.path.expanduser(calib_path),
+                      gripper_ready=gripper_ready)
+    if gripper == 'service':
+        _install_service_gripper(node, link, str(P['gripper_joint_topic']), str(P['gripper_joint']), node_holder)
+    node.get_logger().info(f'로봇 {ns} @ {host}:{port} ({"가상 컨트롤러" if mode == "virtual" else "실물"}), '
+                           f'그리퍼 {"서비스(시뮬레이션)" if gripper == "service" else "DRL"}, 최저 높이 {z_min:.0f} mm, '
+                           f'보정 파일 {calib_path}')
     ex = MultiThreadedExecutor(num_threads=8)
     ex.add_node(node)
     try:

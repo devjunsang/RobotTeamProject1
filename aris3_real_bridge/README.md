@@ -12,6 +12,19 @@ ros2 launch aris3_real_bridge real_bridge.launch.py host:=192.168.0.10 z_min_mm:
 
 로봇 접속(`dsr_bringup2`)은 `connect` 를 받았을 때 시작하고, 노드를 끄면 이 노드가 시작한 접속을 끊는다.
 
+## 가상 모드 (실물 비슷한 시뮬레이션, 2026-11-10)
+
+```bash
+ros2 launch aris3_bringup aris3_real_sim.launch.py                                   # 월드 먼저
+ros2 launch aris3_real_bridge real_bridge.launch.py mode:=virtual gripper:=service   # (GUI --mode real --sim 이 대신 띄움)
+```
+
+- `mode:=virtual`: 「접속」 이 실물 대신 두산 가상 컨트롤러(Docker)를 띄운다 (`virtual.VirtualBringupManager`). 주소 127.0.0.1.
+- `gripper:=service`: 그리퍼를 DRL 대신 `/aris3/gripper/command` 로 (`virtual.ServiceGripper`). **실물 모드에서는 쓸 수 없다** (노드가 거부).
+- 보정 파일은 `~/.config/aris3/sim_camera_calib.json` - 가상 모드에서 실물 보정 파일 경로를 주면 노드가 시작을 거부한다.
+- RobotLink 의 안전 검사·도착 확인·정지·복구 코드는 실물과 같다. 가상 컨트롤러가 재현하지 못하는 것은 충돌 감지·외력 안전 정지·
+  그리퍼 DRL·토크 - 실물 재시험 필요.
+
 ## 인터페이스
 
 | 이름 | 타입 | 설명 |
