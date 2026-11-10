@@ -563,9 +563,16 @@ class RobotLink(Node):
             self.busy = False
 
     def _joints_still(self, window):
-        a = self.joints_deg
+        """window 초 동안 관절이 멈춰 있었나. 그 사이 새 관절 메시지가 실제로 왔을 때만 멈춤으로 본다.
+
+        2026-11-11: 예전에는 새 메시지가 왔는지 보지 않아, CPU 가 바빠 관절 메시지 처리가 잠깐 밀리면 같은 (오래된) 값끼리
+        비교해 「멈췄다」 로 착각하고 움직이는 도중에 끝났다고 판단했다 (도착 확인이 실패로 잡음 - 가상 컨트롤러 시험에서 발견).
+        """
+        a, t_a = self.joints_deg, self.joints_stamp
         time.sleep(window)
-        b = self.joints_deg
+        b, t_b = self.joints_deg, self.joints_stamp
+        if t_b <= t_a or not self.joints_fresh():
+            return False                   # 그 사이 새 관절 값이 없음 -> 멈췄는지 알 수 없음
         return a is not None and b is not None and max(abs(x - y) for x, y in zip(a, b)) < 0.01
 
     def stop(self):
