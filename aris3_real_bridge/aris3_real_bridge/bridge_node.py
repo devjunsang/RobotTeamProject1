@@ -504,9 +504,15 @@ class RealBridge(Node):
 
 
 def _install_service_gripper(node, link, joint_topic, joint_name, holder):
-    """가상 모드: RobotLink 의 그리퍼를 /aris3/gripper/command 서비스로 바꿔 끼운다 (손가락 각도는 관절 상태에서)."""
+    """가상 모드: RobotLink 의 그리퍼를 /aris3/gripper/command 서비스로 바꿔 끼운다 (손가락 각도는 관절 상태에서).
+
+    손가락 각도를 읽는 관절 상태(Gazebo, 100 Hz)는 브리지 실행기가 아니라 **전용 작은 노드 + 단일 스레드 실행기**에서
+    받는다 (2026-11-11). 브리지 실행기(rclpy MultiThreadedExecutor)는 메시지가 올 때마다 기다릴 대상 목록을 다시 만들어
+    초당 100 번 깨면 CPU 를 많이 쓰고, 다른 스레드가 GIL 을 못 얻어 정지·서비스 응답이 수 초 늦어진 일이 있었다.
+    """
     from aris3_interfaces.srv import GripperCommand
     from sensor_msgs.msg import JointState
+    from rclpy.executors import SingleThreadedExecutor
     cb = ReentrantCallbackGroup()
     cli = node.create_client(GripperCommand, '/aris3/gripper/command', callback_group=cb)
     holder['grip_cli'] = cli
@@ -516,7 +522,12 @@ def _install_service_gripper(node, link, joint_topic, joint_name, holder):
         """Gazebo 손가락 관절 각도를 기억 (그리퍼 위치 = 잡음/빈손 판정용)."""
         if joint_name in m.name:
             joint['rad'] = float(m.position[m.name.index(joint_name)])
-    node.create_subscription(JointState, joint_topic, on_js, 10, callback_group=cb)
+    watcher = rclpy.create_node('aris3_real_bridge_gripper_joint')
+    watcher.create_subscription(JointState, joint_topic, on_js, 10)
+    wex = SingleThreadedExecutor()
+    wex.add_node(watcher)
+    threading.Thread(target=wex.spin, daemon=True).start()
+    holder['watcher'] = (watcher, wex)
 
     def call(req, timeout):
         """서비스를 부르고 응답을 기다린다 (작업 스레드에서). 없거나 시간 초과면 None."""
@@ -536,6 +547,11 @@ def main(args=None):
     """
     from e0509_manual.bringup import BringupManager, ConnectionController
     from e0509_manual.robot_link import STATE_KO, start_link
+
+    # 진단: `kill -USR1 <pid>` 를 보내면 모든 스레드의 현재 스택을 기록(표준 오류)에 남긴다 (멈춤 원인 찾기용)
+    import faulthandler
+    import signal
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     rclpy.init(args=args)
     # 접속 설정은 이 노드의 파라미터로 받는다 (launch/real_bridge.launch.py)
@@ -575,13 +591,18 @@ def main(args=None):
     node.get_logger().info(f'로봇 {ns} @ {host}:{port} ({"가상 컨트롤러" if mode == "virtual" else "실물"}), '
                            f'그리퍼 {"서비스(시뮬레이션)" if gripper == "service" else "DRL"}, 최저 높이 {z_min:.0f} mm, '
                            f'보정 파일 {calib_path}')
-    ex = MultiThreadedExecutor(num_threads=8)
+    # 4 스레드: 오래 걸리는 액션 실행 1 + 정지 서비스(별도 콜백 그룹) + 나머지. 많을수록 GIL 다툼만 늘었다
+    ex = MultiThreadedExecutor(num_threads=4)
     ex.add_node(node)
     try:
         ex.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass                                # Ctrl-C / launch 종료(SIGINT) - 아래에서 정리
     finally:
+        # 정리하는 동안 들어오는 SIGINT 는 무시한다: GUI 가 프로세스 그룹에 SIGINT 를 보내면 ros2 launch 가
+        # 한 번 더 넘겨줘 두 번 받는다. 두 번째가 접속 끊기 도중 KeyboardInterrupt 를 내서 로봇 접속
+        # (dsr_bringup2, 실물이면 서보 켜짐)이 남은 채 끝났다 (2026-11-11 ARIS 시험에서 발견).
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         # 순서가 중요: SIGINT 로 rclpy 가 이미 내려갔으면 ROS 호출(정지)은 실패할 수 있으므로,
         # ROS 와 상관없는 로봇 접속 끊기(dsr_bringup2 프로세스 종료 -> 서보 꺼짐)를 먼저 한다.
         if mgr.own_running():
@@ -589,9 +610,11 @@ def main(args=None):
             mgr.stop()
         try:
             link.stop()
-        except Exception:  # noqa: BLE001 - 종료 중이라 ROS 가 없을 수 있음 (접속은 위에서 이미 끊음)
+        except BaseException:  # noqa: BLE001 - 종료 중이라 ROS 가 없을 수 있음 (접속은 위에서 이미 끊음)
             pass
         ex.shutdown()
+        if 'watcher' in node_holder:
+            node_holder['watcher'][1].shutdown()
         link_ex.shutdown()
         node.destroy_node()
         link.destroy_node()
