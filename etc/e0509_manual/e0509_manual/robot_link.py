@@ -64,6 +64,7 @@ SAFE_OFF, SAFE_STOP, EMERGENCY_STOP, RECOVERY, SAFE_STOP2, SAFE_OFF2 = 3, 5, 6, 
 CONTROL_RESET_SAFE_STOP = 2   # 안전 정지(SAFE_STOP) 해제
 CONTROL_SERVO_ON = 3          # 서보 꺼짐(SAFE_OFF) -> 서보 켜기
 HOME_DEG = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]   # ARIS3 홈(관찰 자세, Task Manager 와 같음): 손끝이 아래를 봄
+STRETCH_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # 가동 자세: 모든 관절 0° = 팔을 위로 일자로 편 자세 (2026-11-11)
 HOME_VEL = 30.0                                # deg/s
 # 로봇 모드 (dsr_msgs2 SetRobotMode). 접속하면 dsr_hardware2 가 AUTONOMOUS 로 둔다.
 #   MANUAL     : 팔 끝 콕핏의 직접 교시 버튼을 누른 채 손으로 팔을 끌 수 있다 (상태가 TEACHING 으로 바뀜).
@@ -228,22 +229,30 @@ class RobotLink(Node):
     # ------------------------------------------------------------------ 복구 · 홈
     def move_home(self, vel_deg_s=HOME_VEL):
         """홈 자세(HOME_DEG)로 관절 이동. jog 와 같은 검사(대기 상태·관절 신선도·한계)를 거친다."""
+        return self._move_joint_pose(HOME_DEG, '홈 자세', '홈 이동', vel_deg_s)
+
+    def move_stretch(self, vel_deg_s=HOME_VEL):
+        """가동 자세(STRETCH_DEG, 모든 관절 0°)로 관절 이동 - 팔을 위로 일자로 편다. 홈과 같은 검사."""
+        return self._move_joint_pose(STRETCH_DEG, '가동 자세 (일자로 펴기)', '가동 자세', vel_deg_s)
+
+    def _move_joint_pose(self, pose, title, short, vel_deg_s):
+        """정해진 관절 자세 pose [deg] 로 관절 이동 (대기 상태·관절 신선도·관절 한계 검사, 끝나면 도착 확인)."""
         vel = max(1.0, min(MAX_JOINT_VEL, float(vel_deg_s)))
         reason = self.why_not_ready()
         if reason:
-            self.log(f'홈 이동 거부: {reason}')
+            self.log(f'{short} 거부: {reason}')
             return False
-        for i, t in enumerate(HOME_DEG):
+        for i, t in enumerate(pose):
             lo, hi = JOINT_LIMITS[i]
             if not lo + LIMIT_MARGIN <= t <= hi - LIMIT_MARGIN:
-                self.log(f'홈 이동 거부: J{i + 1} 목표 {t:.0f}° 가 범위 밖')
+                self.log(f'{short} 거부: J{i + 1} 목표 {t:.0f}° 가 범위 밖')
                 return False
         req = MoveJoint.Request()
-        req.pos = [float(x) for x in HOME_DEG]
+        req.pos = [float(x) for x in pose]
         req.vel, req.acc = vel, 2.0 * vel
         req.mode, req.sync_type = 0, 1
-        return self._start_motion(f'홈 자세 {HOME_DEG} ({vel:.0f}°/s)', self.cli_movej, req,
-                                  target_joints=list(HOME_DEG))
+        return self._start_motion(f'{title} {pose} ({vel:.0f}°/s)', self.cli_movej, req,
+                                  target_joints=list(pose))
 
     def recover_and_home(self, vel_deg_s=HOME_VEL):
         """안전 정지·서보 꺼짐을 해제하고(필요하면 자동 모드로) 홈으로 간다. 작업 스레드에서 실행.

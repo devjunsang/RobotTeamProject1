@@ -124,3 +124,59 @@ def test_second_start_is_refused_while_running():
     seq = PickSequence(link, lambda s: None)
     seq.running = True
     assert not seq.hover(400.0, 0.0, 180.0)
+
+
+class StopOnceLink(FakeLink):
+    """stop_at 번째 하강(집는 높이) 이동에서 한 번 「정지」 된 것처럼 실패한다 (그 뒤로는 정상)."""
+
+    def __init__(self, seq_holder, stop_label='집는 높이로 하강', **kw):
+        """seq_holder: [PickSequence] - 정지 때 request_stop() 을 부르기 위해."""
+        super().__init__(**kw)
+        self.holder, self.stop_label, self.stopped = seq_holder, stop_label, False
+
+    def move_tcp_to(self, x, y, z, vel, label=None):
+        """처음 만나는 stop_label 이동에서 정지 버튼이 눌린 것처럼: request_stop + 실패."""
+        if label == self.stop_label and not self.stopped:
+            self.stopped = True
+            self.holder[0].request_stop()
+            self.calls.append(('stopped', label))
+            self.last_ok = False
+            return False
+        return super().move_tcp_to(x, y, z, vel, label)
+
+
+def test_resume_continues_from_stopped_step():
+    """「멈춰」 로 하강 중 정지 -> 「계속해」 는 하강부터 이어서 (그리퍼 열기·접근을 다시 하지 않음)."""
+    holder = [None]
+    link = StopOnceLink(holder, grip_close_pos=500)
+    seq = PickSequence(link, lambda s: None)
+    holder[0] = seq
+    run(seq, seq.pick, 420.0, 30.0, 180.0)
+    assert not seq.last_ok and seq.resumable is not None
+    n_before = len(link.calls)
+    run(seq, seq.resume)
+    after = [c[0] for c in link.calls[n_before:]]
+    assert after == ['move', 'grip', 'move']           # 하강 -> 닫기 -> 들기 (열기·접근 없음)
+    assert link.calls[n_before][3] == 180             # 첫 동작이 집는 높이로 하강
+    assert seq.last_ok and seq.holding is True
+    assert seq.name == '집기 (이어서)' and seq.resumable is None
+
+
+def test_failure_is_not_resumable():
+    """정지가 아니라 실패(빈손)로 끊긴 순서는 이을 수 없다."""
+    link = FakeLink(grip_close_pos=740)
+    seq = PickSequence(link, lambda s: None)
+    run(seq, seq.pick_and_place, 420.0, 30.0, 180.0, 300.0, -250.0)
+    assert seq.resumable is None and not seq.resume()
+
+
+def test_other_motion_forgets_resume():
+    """정지 뒤 다른 동작(홈 등)을 하면 이을 순서를 버린다 - 바뀐 위치에서 「하강」 을 잇지 않게."""
+    holder = [None]
+    link = StopOnceLink(holder)
+    seq = PickSequence(link, lambda s: None)
+    holder[0] = seq
+    run(seq, seq.pick, 420.0, 30.0, 180.0)
+    assert seq.resumable is not None
+    seq.forget_resume('홈 이동')
+    assert not seq.resume()

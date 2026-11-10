@@ -9,6 +9,8 @@ uint8 PICK=1                      # 접근 -> 열기 -> 하강 -> 닫기 -> 들�
 uint8 PLACE_AT=2                  # 접근 높이로 -> 놓을 자리 위 -> 하강 -> 열기 -> 위로           (place)
 uint8 PICK_AND_PLACE=3            # PICK 후 PLACE_AT. 잡지 못했으면(빈손·모름) 옮기지 않음        (target, place)
 uint8 PLACE_HERE=4                # 지금 XY 에서 하강 -> 열기 -> 위로                            (없음)
+uint8 RESUME=5                    # 정지로 끊긴 순서를 멈춘 단계부터 이어서 (없음, 2026-11-11 「계속해」)
+                                  # 정지 뒤 다른 동작(홈·조그·손 안내·접속 끊기)을 했으면 이을 순서가 없다
 
 uint8 kind
 string target_name                # 로그·화면용 이름 ("yellow", "blue_cube")

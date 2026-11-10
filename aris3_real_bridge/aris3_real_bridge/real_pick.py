@@ -185,6 +185,30 @@ class PickSequence:
         self.step_index = 0     # 0 부터
         self.step_count = 0
         self.last_ok = False    # 마지막 순서가 모든 단계를 끝까지 마쳤는가
+        # 「계속해」 (2026-11-11): 정지로 끊긴 순서의 남은 단계. 실패(빈손·거부)로 끊긴 것은 잇지 않는다
+        self.stop_requested = False
+        self.resumable = None   # (이름, 끊긴 단계부터의 [(이름, 함수)]) 또는 None
+
+    def request_stop(self):
+        """정지 요청이 왔다고 표시 (브리지의 정지 서비스·액션 취소가 부른다). 끊긴 순서를 이을 수 있게 된다."""
+        self.stop_requested = True
+
+    def forget_resume(self, why=''):
+        """이을 순서를 버린다 - 정지 뒤 다른 동작(홈·조그·손 안내·접속 끊기)으로 팔 위치가 바뀌었을 때."""
+        if self.resumable:
+            self.log(f'「{self.resumable[0]}」 이어서 하기 취소' + (f': {why}' if why else ''))
+        self.resumable = None
+
+    def resume(self):
+        """정지로 끊긴 순서를 멈춘 단계부터 다시 실행한다. 이을 것이 없거나 실행 중이면 False."""
+        if self.running:
+            self.log('이어서 하기 거부: 순서가 진행 중')
+            return False
+        if not self.resumable:
+            self.log('이어서 하기 거부: 정지로 멈춘 순서가 없음')
+            return False
+        name, steps = self.resumable
+        return self.start(f'{name} (이어서)', steps)
 
     def start(self, name, steps):
         """단계 목록 steps [(이름, 함수)] 를 작업 스레드에서 실행한다. 이미 실행 중이면 거부(False)."""
@@ -192,6 +216,8 @@ class PickSequence:
             self.log(f'{name} 거부: 이전 순서가 진행 중')
             return False
         self.running = True
+        self.stop_requested = False
+        self.resumable = None                   # 새 순서를 시작하면 예전에 끊긴 순서는 버린다
         self.name, self.step, self.step_index, self.step_count, self.last_ok = name, '', 0, len(steps), False
         threading.Thread(target=self._run, args=(name, steps), daemon=True).start()
         return True
@@ -202,16 +228,25 @@ class PickSequence:
             self.log(f'{name}: 시작 ({len(steps)}단계)')
             for i, (label, fn) in enumerate(steps, 1):
                 self.step, self.step_index = label, i - 1
-                if not fn():
-                    self.log(f'{name}: {i}/{len(steps)} 「{label}」 실패 또는 정지 -> 이후 단계 취소')
-                    return
-                if not self.link.wait_motion():
-                    self.log(f'{name}: {i}/{len(steps)} 「{label}」 끝나지 않음 또는 정지 -> 이후 단계 취소')
+                ok = bool(fn())
+                if ok and not self.link.wait_motion():
+                    ok = None                    # 보냈지만 끝나지 않음
+                if ok is not True:
+                    what = '실패 또는 정지' if ok is False else '끝나지 않음 또는 정지'
+                    self.log(f'{name}: {i}/{len(steps)} 「{label}」 {what} -> 이후 단계 취소')
+                    self._keep_for_resume(name, steps[i - 1:], label)
                     return
             self.log(f'{name}: 완료')
             self.last_ok = True
         finally:
             self.running = False
+
+    def _keep_for_resume(self, name, rest, label):
+        """정지로 끊겼으면 끊긴 단계부터 남겨 둔다 (그 단계는 처음부터 다시 - 이동은 목표 좌표, 그리퍼는 같은 명령)."""
+        if self.stop_requested:
+            base = name[:-len(' (이어서)')] if name.endswith(' (이어서)') else name
+            self.resumable = (base, rest)
+            self.log(f'{base}: 「{label}」 부터 이어서 할 수 있음 (「계속해」, 남은 {len(rest)}단계)')
 
     # ---- 단계 만들기
     def _move(self, x, y, z, vel, label):

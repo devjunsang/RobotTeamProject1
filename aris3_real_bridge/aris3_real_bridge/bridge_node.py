@@ -162,6 +162,7 @@ class RealBridge(Node):
     # ================================================================== 서비스
     def _srv_stop(self, _req, res):
         sent = self.link.cli_stop.service_is_ready()
+        self.picker.request_stop()          # 끊긴 집기 순서를 「계속해」 로 이을 수 있게 표시
         self.link.stop()                    # 연결이 없어도 부른다 (RobotLink 가 로그를 남김)
         self.get_logger().warn('정지 요청 받음' + ('' if sent else ' - 로봇 연결 없음, 보내지 못함'))
         res.success = bool(sent)
@@ -173,6 +174,7 @@ class RealBridge(Node):
         if self.link.joints_fresh():
             res.success, res.message = True, '이미 접속됨'
         else:
+            self.picker.forget_resume('새로 접속')
             res.success = bool(self.conn.connect_async())
             res.message = '접속 시작 (서보가 켜지고 펜던트 제어권을 가져옴, 팔은 움직이지 않음)' if res.success \
                 else '이미 접속/끊기 작업 중'
@@ -181,6 +183,7 @@ class RealBridge(Node):
     def _srv_disconnect(self, _req, res):
         """/aris3/real/disconnect: 접속 끊기 (서보 꺼짐). 먼저 조작 허용을 잠근다."""
         self.armed = False
+        self.picker.forget_resume('접속 끊기')
         res.success = bool(self.conn.disconnect_async())
         res.message = '접속 끊기 시작 (서보 꺼짐, 브레이크가 팔을 잡음)' if res.success else '이미 접속/끊기 작업 중'
         return res
@@ -204,6 +207,7 @@ class RealBridge(Node):
             res.success, res.message = False, '집기/놓기 순서가 진행 중 - 끝난 뒤에 켜세요'
             return res
         self.armed = False                  # 손으로 움직이는 동안 GUI 명령은 잠근다 (예전 GUI 와 같음)
+        self.picker.forget_resume('손으로 움직이기')
         res.success = bool(self.link.set_hand_guide(on))
         res.message = ('모드 전환 시작' if res.success else self._last_link_log('모드 전환 거부'))
         return res
@@ -276,6 +280,7 @@ class RealBridge(Node):
 
     def _cancel_cb(self, _goal_handle):
         """액션 취소 요청: 바로 로봇 정지를 보내고 받아들인다 (실행 콜백이 이어서 취소로 끝낸다)."""
+        self.picker.request_stop()
         self.link.stop()
         return CancelResponse.ACCEPT
 
@@ -285,6 +290,7 @@ class RealBridge(Node):
         idle_since, stop_sent, last_fb = None, False, 0.0
         while True:
             if goal_handle.is_cancel_requested and not stop_sent:
+                self.picker.request_stop()
                 self.link.stop()
                 stop_sent = True
             if busy():
@@ -335,7 +341,7 @@ class RealBridge(Node):
         res = RealMotion.Result()
         names = {G.JOG_JOINT: f'J{g.index + 1} {g.delta:+.1f}°', G.JOG_TCP: f'{"XYZ"[min(g.index, 2)]} {g.delta:+.1f} mm',
                  G.HOME: '홈 이동', G.RECOVER_HOME: '복구 후 홈', G.GRIPPER_OPEN: '그리퍼 열기',
-                 G.GRIPPER_CLOSE: '그리퍼 닫기'}
+                 G.GRIPPER_CLOSE: '그리퍼 닫기', G.STRETCH: '가동 자세 (일자로 펴기)'}
         what = names.get(g.kind)
         if what is None:
             res.success, res.message = False, f'모르는 동작 {g.kind}'
@@ -346,6 +352,7 @@ class RealBridge(Node):
             res.success, res.message = False, f'{what} 거부: {why}'
             self.get_logger().warn(res.message)
             return self._finish(goal_handle, res)
+        self.picker.forget_resume(what)      # 정지 뒤 다른 동작을 했으면 끊긴 집기 순서는 잇지 않는다
         self._touch()
         L = self.link
         L.last_ok = False
@@ -357,6 +364,8 @@ class RealBridge(Node):
             started = L.move_home(joint_vel(g.speed_percent))
         elif g.kind == G.RECOVER_HOME:
             started = L.recover_and_home(joint_vel(g.speed_percent))
+        elif g.kind == G.STRETCH:                    # 「아리스 가동」: 모든 관절 0° (홈과 같은 검사)
+            started = L.move_stretch(joint_vel(g.speed_percent))
         else:
             close = g.kind == G.GRIPPER_CLOSE
             started = L.gripper_command('move', pos=GRIP_CLOSE_POS if close else 0, cur=GRIP_CURRENT_MA,
@@ -394,7 +403,7 @@ class RealBridge(Node):
         G = RealPickPlace.Goal
         res = RealPickPlace.Result()
         names = {G.HOVER: '큐브 위로', G.PICK: '집기', G.PLACE_AT: '고른 자리에 놓기',
-                 G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기'}
+                 G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기', G.RESUME: '이어서 하기'}
         what = names.get(g.kind)
         res.holding = hold_code(self.picker.holding, RealPickPlace.Result)
         if what is None:
@@ -415,7 +424,9 @@ class RealBridge(Node):
         for n in notes:
             self.get_logger().warn(f'{what}: {n}')
         self._touch()
-        if g.kind == G.HOVER:
+        if g.kind == G.RESUME:                # 정지로 끊긴 순서를 멈춘 단계부터 (좌표는 처음 계산한 그대로)
+            started = P.resume()
+        elif g.kind == G.HOVER:
             started = P.hover(x, y, z)
         elif g.kind == G.PICK:
             started = P.pick(x, y, z)
@@ -426,7 +437,8 @@ class RealBridge(Node):
         else:
             started = P.place_here(z)
         if not started:
-            res.success, res.message = False, f'{what} 거부 (이전 순서 진행 중이거나 현재 좌표 모름)'
+            res.success, res.message = False, (f'{what} 거부: 정지로 멈춘 집기 순서가 없음 (정지 뒤 다른 동작을 했으면 잇지 않음)'
+                                               if g.kind == G.RESUME else f'{what} 거부 (이전 순서 진행 중이거나 현재 좌표 모름)')
             return self._finish(goal_handle, res)
 
         def fb():
