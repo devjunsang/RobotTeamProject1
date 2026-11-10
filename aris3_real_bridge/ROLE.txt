@@ -1,0 +1,35 @@
+ARIS3 / aris3_real_bridge
+=========================
+
+[폴더 역할]
+실물 E0509 브리지 - 로봇 접속·이동·그리퍼·복구, 카메라 보정, 카메라 기반 집기 순서를 ROS 인터페이스로 내놓는다.
+두 GUI(aris3_gui PyQt, aris3_gui_cpp ARIS C++ Qt)는 로봇에 직접 붙지 않고 이 노드만 부른다.
+
+[개발 기술]
+Python / rclpy (액션 서버·서비스), e0509_manual (RobotLink, bringup), OpenCV·NumPy (보정)
+
+[구현할 내용]
+/aris3/real/state (RealRobotState 10 Hz), /aris3/real/{connect,disconnect,stop} (Trigger),
+/aris3/real/{set_armed,set_hand_guide} (SetBool), /aris3/real/calibration (RealCalibration),
+/aris3/real/motion (RealMotion 액션), /aris3/real/pick_place (RealPickPlace 액션). 취소 = 정지.
+
+[완료 기준]
+GUI 를 꺼도 이 노드만으로 실물 집기·놓기를 실행할 수 있고, 두 GUI 가 같은 안전 코드(RobotLink)를 쓴다.
+
+[원칙]
+- 로봇 안전 코드(이동 전 검사, 도착 확인, 정지, 그리퍼 토크 확인, 복구)는 새로 짜지 않는다: e0509_manual RobotLink 그대로.
+- 조작 허용(armed)을 이 노드도 가진다: 꺼져 있으면 이동·그리퍼·집기 요청 거부, 120 s 명령이 없으면 자동 잠금.
+  GUI 의 「조작 허용」 과 이중 장치. 정지는 armed 와 상관없이 언제나 받는다 (별도 콜백 그룹).
+- 확인창(사람 확인)은 GUI 몫이다. 이 노드는 받은 요청을 검사해 실행하거나 거부한다.
+
+[개발 단계]
+CHALLENGE (Qt GUI 전환 1단계, 2026-11-10)
+
+[현재 상태]
+1차 구현 (2026-11-10): 노드·launch·단위 시험. real_pick.py 를 aris3_gui 에서 옮김 (PyQt GUI 는 아직 이 파일을
+직접 import 해서 예전처럼 동작 - 다음 단계에서 브리지 호출로 바꾼 뒤 실물 재시험).
+실물 로봇으로는 아직 시험 전.
+
+[참고]
+- 실행: ros2 launch aris3_real_bridge real_bridge.launch.py [host:=110.120.1.66]
+- README.md 에 명령줄 시험 예시

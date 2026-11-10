@@ -1,6 +1,6 @@
 """실물 E0509: 카메라 보정·집기 패널, 손짓(MediaPipe), 실물 음성 명령.
 
-보정과 집기 순서 자체는 aris3_gui/real_pick.py (PixelCalibration, PickSequence) 에 있다.
+보정과 집기 순서 자체는 aris3_real_bridge/real_pick.py (PixelCalibration, PickSequence) 에 있다.
 이 패널은 큐브·놓을 자리 선택(클릭·손짓), 확인창, 「조작 허용」 검사를 맡는다.
 """
 import math
@@ -10,7 +10,7 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from aris3_gui.panels.common import HOME_DEG_REAL, nofocus
-from aris3_gui.real_pick import PickSequence, PixelCalibration
+from aris3_real_bridge.real_pick import PickSequence, PixelCalibration
 from aris3_gui.widgets import COLOR_KO
 
 # 손짓 (실물, MediaPipe): 가리키고 이 시간 동안 이 반경 안에 멈추면 선택

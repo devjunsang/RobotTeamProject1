@@ -63,7 +63,7 @@ python3 -m pip --python ~/venvs/mark1_voice/bin/python install faster-whisper "n
 | ├ `real_pick_panel.py` | 실물: 카메라 보정·집기, 손짓(MediaPipe), 실물 음성 명령 |
 | ├ `jog.py` | 수동 조작, 조작 허용, 손으로 움직이기, 복구 후 홈 |
 | └ `log.py` | 로그 |
-| `real_pick.py` | 실물: 픽셀 -> 로봇 좌표 보정(`PixelCalibration`), 집기 순서(`PickSequence`) |
+| (`aris3_real_bridge/real_pick.py`) | 실물: 픽셀 -> 로봇 좌표 보정(`PixelCalibration`), 집기 순서(`PickSequence`). 2026-11-10 브리지 패키지로 옮김 |
 | `widgets.py` | 카메라 영상 + 검출 표시(TF + 핀홀 투영), 작업 공간 2D 지도 |
 
 ## 알려진 한계 (2026-11-08)

@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>aris3_real_bridge</name>
+  <version>0.1.0</version>
+  <description>ARIS3 실물 E0509 브리지: e0509_manual RobotLink·카메라 보정·집기 순서를 /aris3/real/* 서비스·액션·상태 토픽으로 내놓는다 (두 GUI 공용)</description>
+  <maintainer email="devjunsang@gmail.com">MasterJun</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>aris3_interfaces</exec_depend>
+  <exec_depend>e0509_manual</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

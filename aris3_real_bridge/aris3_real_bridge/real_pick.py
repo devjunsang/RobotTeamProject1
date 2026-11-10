@@ -1,5 +1,7 @@
 """실물 E0509: 카메라 픽셀 -> 로봇 좌표 보정과 집기 순서 (2026-11-09, 시제품).
 
+2026-11-10: aris3_gui/real_pick.py 에서 aris3_real_bridge 로 옮김 (두 GUI 가 브리지 노드를 통해 같이 쓴다).
+
 보정 (「손으로 가르쳐 주기」):
   큐브를 판 위 여러 곳에 놓고, 매번
     ① 카메라에 큐브가 보일 때 그 픽셀 (u, v) 를 기억하고
@@ -164,12 +166,19 @@ class PickSequence:
         self.link, self.log = link, log
         self.running = False
         self.holding = None     # 마지막 닫기 결과: True 잡음 / False 빈손 / None 모름
+        # 진행 상황 (aris3_real_bridge 가 상태 토픽·액션 feedback 으로 내보냄, 2026-11-10)
+        self.name = ''          # 지금(또는 마지막) 순서 이름
+        self.step = ''          # 지금 단계 이름
+        self.step_index = 0     # 0 부터
+        self.step_count = 0
+        self.last_ok = False    # 마지막 순서가 모든 단계를 끝까지 마쳤는가
 
     def start(self, name, steps):
         if self.running:
             self.log(f'{name} 거부: 이전 순서가 진행 중')
             return False
         self.running = True
+        self.name, self.step, self.step_index, self.step_count, self.last_ok = name, '', 0, len(steps), False
         threading.Thread(target=self._run, args=(name, steps), daemon=True).start()
         return True
 
@@ -177,6 +186,7 @@ class PickSequence:
         try:
             self.log(f'{name}: 시작 ({len(steps)}단계)')
             for i, (label, fn) in enumerate(steps, 1):
+                self.step, self.step_index = label, i - 1
                 if not fn():
                     self.log(f'{name}: {i}/{len(steps)} 「{label}」 실패 또는 정지 -> 이후 단계 취소')
                     return
@@ -184,6 +194,7 @@ class PickSequence:
                     self.log(f'{name}: {i}/{len(steps)} 「{label}」 끝나지 않음 또는 정지 -> 이후 단계 취소')
                     return
             self.log(f'{name}: 완료')
+            self.last_ok = True
         finally:
             self.running = False
 

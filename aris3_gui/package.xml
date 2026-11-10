@@ -23,6 +23,7 @@
   <exec_depend>tf2_ros</exec_depend>
   <!-- 시뮬레이션 모드 Connect 가 실행 -->
   <exec_depend>aris3_bringup</exec_depend>
+  <exec_depend>aris3_real_bridge</exec_depend>   <!-- real_pick.py (실물 보정·집기 순서) -->
   <!-- 실물 모드 (etc/e0509_manual): 접속·안전 검사 재사용. 없으면 실물 모드만 쓸 수 없다 -->
 
   <export>
