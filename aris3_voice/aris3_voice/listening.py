@@ -3,6 +3,7 @@
 ROS·Whisper 에 의존하지 않는 순수 함수·클래스라서 단위 시험(test/test_listening.py)에서 바로 쓴다.
 
   strip_wake_word(text) : 문장 앞의 호출어(아리스)를 찾아 떼어 낸다. 없으면 명령이 아니다.
+  WakeGate              : 「아리스」 만 말하고 쉬었다가 명령해도 받는다 (부른 뒤 8 초 안의 다음 말 하나).
   UtteranceSegmenter    : 마이크 소리를 30 ms 조각으로 받아 「말 한 마디」(말소리 시작 ~ 조용해질 때까지)를 잘라 낸다.
                           방 소음 크기를 따라가며(적응형 문턱) 그보다 충분히 큰 소리만 말로 본다.
 """
@@ -35,6 +36,34 @@ def strip_wake_word(text):
             rest = _PUNCT.sub(' ', rest).strip()
             return True, rest
     return False, raw
+
+
+class WakeGate:
+    """호출어 문지기: 이 말을 명령으로 받을까.
+
+    - 「아리스 빨간 도형 잡아」 처럼 한 번에 말하면 바로 명령.
+    - 「아리스」 만 말하고 쉬었다가 「빨간 도형 잡아」 라고 하면, 말이 두 마디로 잘려도
+      follow_s 초 안의 다음 말 하나를 명령으로 받는다 (사람은 부르고 잠깐 쉬는 게 자연스럽다, 2026-11-11 시험).
+    - 그 밖에 호출어 없는 말은 무시.
+    """
+
+    def __init__(self, follow_s=8.0):
+        self.follow_s = follow_s
+        self.until = float('-inf')            # 이 시각(monotonic)까지는 호출어 없는 다음 말도 명령 (처음엔 없음)
+
+    def feed(self, text, now):
+        """(명령인가, 해석할 문장, 상태) - 상태는 'command' | 'follow' (뒤 말 명령) | 'wait' (호출어만) | 'ignore'."""
+        woke, rest = strip_wake_word(text)
+        if woke and rest:
+            self.until = float('-inf')
+            return True, rest, 'command'
+        if woke:                              # 「아리스」 만: 다음 말을 기다린다
+            self.until = now + self.follow_s
+            return False, '', 'wait'
+        if text and now <= self.until:        # 부른 뒤 이어서 한 말
+            self.until = float('-inf')
+            return True, text.strip(), 'follow'
+        return False, text, 'ignore'
 
 
 class UtteranceSegmenter:

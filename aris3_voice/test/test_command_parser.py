@@ -93,3 +93,39 @@ def test_home_command():
     assert parse_command("빨간 큐브 집어줘")["action"] == "pick"
     assert parse_command("파란 거 집으세요")["action"] == "pick"
     assert parse_command("원래대로 돌려놔")["action"] == "place"
+
+
+# ---- 멈춰 / 계속해 (2026-11-11)
+def test_stop_words():
+    """「멈춰」「정지」「그만」 -> stop, 다른 말과 섞여도 정지가 먼저."""
+    for s in ['멈춰', '멈춰!', '정지', '그만', '멈춰 그거 잡지 마', '빨간 큐브 잡지 말고 멈춰']:
+        cmd = parse_command(s)
+        assert cmd['action'] == 'stop', s
+        assert validate_command(cmd)[0]
+
+
+def test_resume_words():
+    """「계속해」「이어서 해」 -> resume."""
+    for s in ['계속해', '계속 해줘', '이어서 해']:
+        cmd = parse_command(s)
+        assert cmd['action'] == 'resume', s
+        assert validate_command(cmd)[0]
+
+
+def test_pick_not_mistaken_for_stop_or_resume():
+    """보통 집기 명령은 그대로 pick."""
+    assert parse_command('노란색 큐브 잡아')['action'] == 'pick'
+
+
+def test_disconnect_and_power_on():
+    """「연결해제」 는 「연결해」 를 품어도 끊기, 「가동」 은 power_on."""
+    for s, a in [('연결해제', 'disconnect'), ('연결 해제해', 'disconnect'), ('접속 끊어', 'disconnect'),
+                 ('가동', 'power_on'), ('가동해', 'power_on'), ('가동 시작', 'power_on')]:
+        cmd = parse_command(s)
+        assert cmd['action'] == a, s
+        assert validate_command(cmd)[0]
+
+
+def test_stop_beats_everything():
+    """「멈춰」 는 다른 명령 낱말과 함께여도 정지."""
+    assert parse_command('가동 멈춰')['action'] == 'stop'

@@ -34,7 +34,7 @@ from std_msgs.msg import Bool, String
 
 from aris3_interfaces.msg import VoiceCommand
 from aris3_voice.command_parser import parse_command, validate_command
-from aris3_voice.listening import UtteranceSegmenter, strip_wake_word
+from aris3_voice.listening import UtteranceSegmenter, WakeGate, strip_wake_word
 
 RATE = 16000
 
@@ -68,6 +68,7 @@ class VoiceNode(Node):
         self.rec = None             # (Popen, wav path, 시작 시각)
         self.listen_proc = None     # 음성 명령 모드: 계속 녹음하는 arecord
         self.utterances = queue.Queue(maxsize=4)   # 잘라 낸 말 -> 인식 스레드
+        self.wake = WakeGate(follow_s=8.0)          # 호출어 문지기 (「아리스」 만 말하고 쉬어도 다음 말을 받음)
         threading.Thread(target=self._recognize_loop, daemon=True).start()
         self.create_timer(1.0, lambda: self._set_state(self.state))   # 늦게 붙은 GUI 도 상태를 알 수 있게
         threading.Thread(target=self._load_model, daemon=True).start()
@@ -231,9 +232,12 @@ class VoiceNode(Node):
                                                 condition_on_previous_text=False, vad_filter=True)
                 text = ' '.join(x.text.strip() for x in segs).strip()
                 dt = time.monotonic() - t0
-                woke, rest = strip_wake_word(text)
-                if woke:
-                    self._publish(text, rest, dt)
+                # 「아리스 ...」 한 번에, 또는 「아리스」 (쉬고) 「...」 두 마디로 (WakeGate)
+                is_cmd, rest, how = self.wake.feed(text, time.monotonic())
+                if is_cmd:
+                    self._publish(text if how == 'command' else f'아리스 … {text}', rest, dt)
+                elif how == 'wait':
+                    self.get_logger().info(f'「{text}」 - 호출어만 들림: {self.wake.follow_s:.0f} 초 안의 다음 말을 명령으로 받음')
                 elif text:
                     self.get_logger().info(f'「{text}」 - 호출어(아리스) 없음, 무시 ({dt:.2f}s)')
             except Exception as e:  # noqa: BLE001

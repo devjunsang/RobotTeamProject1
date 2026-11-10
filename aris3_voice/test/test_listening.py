@@ -77,3 +77,34 @@ def test_segmenter_splits_long_speech_at_max():
     seg = UtteranceSegmenter(max_utt_s=2.0)
     outs = run(seg, tone(16000 * 5, 6000))
     assert len(outs) >= 2
+
+
+# ---- WakeGate: 「아리스」 (쉬고) 「명령」 두 마디 (2026-11-11 시험에서 실제로 이렇게 말함)
+from aris3_voice.listening import WakeGate  # noqa: E402
+
+
+def test_wake_gate_one_breath():
+    """한 번에 말하면 바로 명령."""
+    g = WakeGate(follow_s=8.0)
+    assert g.feed('아리스 노란색 큐브 잡아', 0.0) == (True, '노란색 큐브 잡아', 'command')
+
+
+def test_wake_gate_pause_then_command():
+    """「아리스」 만 -> 기다림, 8 초 안의 다음 말은 호출어 없어도 명령."""
+    g = WakeGate(follow_s=8.0)
+    assert g.feed('아리스', 0.0)[2] == 'wait'
+    assert g.feed('노란색 큐브 잡아', 2.0) == (True, '노란색 큐브 잡아', 'follow')
+    # 한 번만: 그 다음 말은 다시 호출어가 있어야 한다
+    assert g.feed('빨간 큐브 잡아', 3.0)[0] is False
+
+
+def test_wake_gate_pause_too_long():
+    """8 초가 지나면 호출어 없는 말은 무시."""
+    g = WakeGate(follow_s=8.0)
+    g.feed('아리스', 0.0)
+    assert g.feed('노란색 큐브 잡아', 9.0) == (False, '노란색 큐브 잡아', 'ignore')
+
+
+def test_wake_gate_ignores_without_call():
+    """부르지 않은 말은 무시 (옆 사람과의 대화)."""
+    assert WakeGate().feed('노란색 큐브 잡아', 0.0)[0] is False

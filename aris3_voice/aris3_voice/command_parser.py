@@ -6,6 +6,8 @@ ARIS3 변경 (2026-11-08, 11-09):
     (MARK1 은 도형 필수·색 선택이었음)
   - 노랑(yellow) 추가, '큐브/정육면체/네모/사각형' -> cube
   - Whisper 오인식 보정 표와 '지워줘'(모호) 처리는 MARK1 그대로
+  - 「멈춰」(stop, 가장 먼저 봄), 「계속해」(resume: 정지로 끊긴 순서를 이어서),
+    「연결해제」(disconnect), 「가동」(power_on: 접속 후 팔을 위로 일자로 펴기) - 2026-11-11
   - 지시어 「이거/그거/저거」(화면에서 고른 물체), 「저기/여기/거기」(화면에서 고른 자리).
     지금은 마우스 클릭, 이후 손짓이 가리킨 것을 쓴다. 실제 물체·자리 확인은 GUI 가 한다
 
@@ -56,6 +58,12 @@ PLACE_DEIXIS = ["저기", "여기", "거기", "그자리", "이자리", "저자�
 PICK_WORDS = ["집어", "집으", "집고", "잡아", "잡으", "잡고", "들어", "옮겨"]
 # 홈 자세로 (2026-11-09): 「집으로 돌아가」 의 「집으」 가 PICK 으로 읽히지 않게 PICK 보다 먼저 본다
 HOME_WORDS = ["집으로돌아", "집으로가", "집으로복귀", "홈으로", "홈위치", "원위치", "복귀"]
+# 정지·이어서 (2026-11-11): 「멈춰」 는 무엇보다 먼저 본다 (「멈춰 그거 잡지 마」 도 정지)
+STOP_WORDS = ["멈춰", "멈춰라", "멈추", "멈춤", "정지", "그만", "스톱", "stop"]
+RESUME_WORDS = ["계속해", "계속하", "계속진행", "이어서", "이어해", "다시진행"]
+# 접속 (2026-11-11): 「연결해제」 가 「연결해」 를 품고 있으므로 끊기를 먼저 본다
+DISCONNECT_WORDS = ["연결해제", "연결끊", "연결을끊", "접속해제", "접속끊", "접속을끊", "전원꺼", "꺼져"]
+POWER_ON_WORDS = ["가동", "기동", "작동시작", "깨어나", "일어나"]
 
 
 def normalize_text(text):
@@ -85,6 +93,19 @@ def parse_command(text):
         ref_object = True
     action = ""
     ambiguous = False
+    low = norm.lower()
+    if any(w in low for w in STOP_WORDS):
+        return {"action": "stop", "color": "", "shape": "", "ambiguous": False,
+                "ref_object": False, "ref_place": False, "original_text": text, "normalized_text": norm}
+    simple = {"action": "", "color": "", "shape": "", "ambiguous": False,
+              "ref_object": False, "ref_place": False, "original_text": text, "normalized_text": norm}
+    if any(w in norm for w in DISCONNECT_WORDS):
+        return dict(simple, action="disconnect")
+    if any(w in norm for w in POWER_ON_WORDS):
+        return dict(simple, action="power_on")
+    if any(w in norm for w in RESUME_WORDS):
+        return {"action": "resume", "color": "", "shape": "", "ambiguous": False,
+                "ref_object": False, "ref_place": False, "original_text": text, "normalized_text": norm}
     if any(w in norm for w in HOME_WORDS):
         # 「집으로 돌아가」「홈으로 가」「원위치」: 물체·자리 말과 상관없이 홈 자세로
         return {"action": "home", "color": "", "shape": "", "ambiguous": False,
@@ -120,4 +141,12 @@ def validate_command(cmd, known_colors=None):
         return True, "PLACE 명령 생성 (집었던 자리에 놓기)"
     if cmd["action"] == "home":
         return True, "HOME 명령 생성 (홈 자세로 돌아가기)"
+    if cmd["action"] == "stop":
+        return True, "STOP 명령 생성 (정지)"
+    if cmd["action"] == "disconnect":
+        return True, "DISCONNECT 명령 생성 (로봇 접속 끊기)"
+    if cmd["action"] == "power_on":
+        return True, "POWER_ON 명령 생성 (접속 -> 팔을 일자로 펴기)"
+    if cmd["action"] == "resume":
+        return True, "RESUME 명령 생성 (멈춘 단계부터 이어서)"
     return False, "지원하지 않는 명령입니다."
