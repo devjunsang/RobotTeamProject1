@@ -4,7 +4,12 @@
 
 입력:  /aris3/overhead_camera/image/compressed (sensor_msgs/CompressedImage)  - 물체 색 검출과 같은 영상
 출력:  /aris3/gesture      (aris3_interfaces/HandGesture)  손이 보이든 안 보이든 처리한 영상마다
+                                                             (hold_progress: 가리키고 멈추기 진행 0~1)
+       /aris3/gesture/event (aris3_interfaces/GestureEvent)  선택 / 집기 확정 / 놓기 확정 (2026-11-10)
        /aris3/gesture/state (std_msgs/String)  loading | ready | error:<이유>
+
+선택·확정 판단(gesture_events.GestureTracker)은 2026-11-10 GUI 에서 이 노드로 옮겼다 - 두 GUI 가 같은 판단을 쓴다.
+이벤트는 로봇을 움직이지 않는다: GUI 가 확인창 + 조작 허용을 거쳐 실행한다.
 
 검지 끝 픽셀은 색 검출(/aris3/vision/detections_px)과 같은 영상 좌표라서,
 GUI 의 카메라 보정(픽셀 -> 로봇 좌표)을 그대로 쓴다. 이 노드는 로봇을 움직이지 않는다.
@@ -25,13 +30,20 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 
 from aris3_gesture.gesture_classifier import GestureSmoother, classify
-from aris3_interfaces.msg import HandGesture
+from aris3_gesture.gesture_events import CONFIRM_PICK, CONFIRM_PLACE, SELECT, GestureTracker
+from aris3_interfaces.msg import GestureEvent, HandGesture
 
 DEFAULT_MODEL = os.path.expanduser('~/.config/aris3/models/hand_landmarker.task')
+# GestureTracker 이벤트 이름 -> GestureEvent 메시지 번호
+EVENT_TYPE = {SELECT: GestureEvent.SELECT, CONFIRM_PICK: GestureEvent.CONFIRM_PICK,
+              CONFIRM_PLACE: GestureEvent.CONFIRM_PLACE}
 
 
 class GestureNode(Node):
+    """위쪽 카메라 영상에서 손을 찾아 손짓·검지 끝 픽셀·선택/확정 이벤트를 발행하는 노드."""
+
     def __init__(self):
+        """파라미터 선언, 발행·구독 준비, MediaPipe 를 읽고 영상을 처리할 작업 스레드 시작."""
         super().__init__('aris3_gesture')
         self.declare_parameter('image_topic', '/aris3/overhead_camera/image/compressed')
         self.declare_parameter('model_path', DEFAULT_MODEL)
@@ -39,9 +51,14 @@ class GestureNode(Node):
         self.declare_parameter('min_detection_confidence', 0.5)
         self.declare_parameter('smooth_frames', 7)
         self.declare_parameter('smooth_votes', 5)
+        self.declare_parameter('hold_sec', 1.0)             # 가리키고 이 시간 멈추면 선택 (예전 GUI GESTURE_HOLD_SEC)
+        self.declare_parameter('hold_radius_px', 25.0)      # 이 반경 안이면 멈춘 것 (예전 GUI GESTURE_HOLD_RADIUS_PX)
 
         self.pub = self.create_publisher(HandGesture, '/aris3/gesture', 10)
         self.pub_state = self.create_publisher(String, '/aris3/gesture/state', 10)
+        self.pub_event = self.create_publisher(GestureEvent, '/aris3/gesture/event', 10)
+        self.tracker = GestureTracker(float(self.get_parameter('hold_sec').value),
+                                      float(self.get_parameter('hold_radius_px').value))
         self.smoother = GestureSmoother(self.get_parameter('smooth_frames').value,
                                         self.get_parameter('smooth_votes').value)
         self.state = 'loading'
@@ -118,8 +135,10 @@ class GestureNode(Node):
         out = HandGesture()
         out.stamp = msg.header.stamp
         out.image_width, out.image_height = w, h
+        now = time.monotonic()
         if not res.hand_landmarks:
             self.smoother.reset()
+            self.tracker.update(now, False)                # 손이 사라짐 -> 멈춤·전환 판단 초기화
             self.pub.publish(out)
             return
         lm = res.hand_landmarks[0]
@@ -133,7 +152,15 @@ class GestureNode(Node):
             c = res.handedness[0][0]
             out.confidence = float(c.score)
             out.handedness = c.category_name or ''
+        # 선택(가리키고 멈춤)·확정(가리킴 -> 주먹/펼침) 판단: 진행도는 HandGesture 에, 확정은 GestureEvent 로
+        progress, events = self.tracker.update(now, True, out.gesture, out.tip_u, out.tip_v)
+        out.hold_progress = float(progress)
         self.pub.publish(out)
+        for kind, u, v in events:
+            ev = GestureEvent(type=EVENT_TYPE[kind], u=float(u), v=float(v))
+            ev.stamp = msg.header.stamp
+            self.pub_event.publish(ev)
+            self.get_logger().info(f'손짓 이벤트: {kind} ({u:.0f}, {v:.0f})')
 
     def destroy_node(self):
         self.running = False

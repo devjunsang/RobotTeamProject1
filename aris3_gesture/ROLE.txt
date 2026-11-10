@@ -17,6 +17,9 @@ Python / MediaPipe Hand Landmarker (Tasks API) / OpenCV / rclpy
 [현재 상태]
 1차 구현 (2026-11-09): gesture_node + gesture_classifier (pytest 11/11), GUI 실물 모드 연동.
 실물 카메라에서 손짓 인식률·포인터 오차는 아직 측정 전.
+2026-11-10 (feat/qt-gui): 「가리키고 1초 멈춤 = 선택」「가리킴 -> 주먹/펼침 = 확정」 판단을 GUI 에서 이 노드로 옮김
+(gesture_events.GestureTracker, pytest 6개) -> /aris3/gesture/event (GestureEvent), HandGesture.hold_progress.
+파라미터 hold_sec(1.0), hold_radius_px(25). 두 GUI(PyQt, ARIS)가 같은 판단을 쓴다.
 2026-11-10: 실물(D455 위쪽 카메라)에서 손짓 Pick & Place 시험 완료 (정상 동작 확인).
 
 [설치 (처음 한 번)]

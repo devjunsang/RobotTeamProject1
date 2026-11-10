@@ -9,5 +9,5 @@ uint8 CONFIRM_PLACE=2             # 가리킴 -> 펼침: 고른 자리에 놓기
 
 builtin_interfaces/Time stamp
 uint8 type
-float32 u                         # SELECT: 멈춘 곳의 평균 손끝 픽셀. CONFIRM_*: 마지막 손끝 픽셀
+float32 u                         # SELECT: 멈추기 시작한 곳의 손끝 픽셀. CONFIRM_*: 그 순간의 손끝 픽셀
 float32 v
