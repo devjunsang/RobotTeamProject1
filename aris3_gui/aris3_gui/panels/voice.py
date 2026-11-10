@@ -15,14 +15,17 @@ class VoiceMixin:
         v = QVBoxLayout(box)
         self.lbl_voice_state = QLabel('—')
         v.addWidget(self.lbl_voice_state)
-        self.btn_talk = nofocus(QPushButton('🎤 누르고 말하기'))
+        # 음성 명령 모드 ON/OFF (2026-11-10): 켜 두면 계속 듣고 「아리스 ...」 로 시작하는 말만 명령으로 받는다
+        self.btn_talk = nofocus(QPushButton('🎙 음성 명령 모드: OFF'))
+        self.btn_talk.setCheckable(True)
         self.btn_talk.setMinimumHeight(44)
-        self.btn_talk.pressed.connect(lambda: self._talk(True))
-        self.btn_talk.released.connect(lambda: self._talk(False))
+        self.btn_talk.setToolTip('켜면 마이크가 계속 듣습니다. 「아리스 빨간 도형 잡아」 처럼 앞에 「아리스」 를 붙여 말하세요.\n'
+                                 '「아리스」 로 시작하지 않는 말은 무시합니다.')
+        self.btn_talk.clicked.connect(self._talk)
         v.addWidget(self.btn_talk)
         row = QHBoxLayout()
         self.txt_cmd = QLineEdit()
-        self.txt_cmd.setPlaceholderText('또는 문장 입력 (예: 이거 저기로 옮겨줘 / 노란 큐브 집어줘)')
+        self.txt_cmd.setPlaceholderText('또는 문장 입력 (예: 아리스 빨간 도형 잡아 / 이거 저기로 옮겨줘)')
         self.txt_cmd.returnPressed.connect(self._send_text)
         b = nofocus(QPushButton('해석'))
         b.clicked.connect(self._send_text)
@@ -51,7 +54,9 @@ class VoiceMixin:
         return box
 
     def _talk(self, on):
-        self.node.voice_listen(on)
+        """음성 명령 모드 버튼: 켜기/끄기를 음성 노드에 보낸다 (실제 상태는 주기 갱신이 노드 상태로 다시 맞춤)."""
+        self.node.voice_active(on)
+        self.node.log('INFO', '음성 명령 모드 켬 - 「아리스 ...」 로 말하세요' if on else '음성 명령 모드 끔')
 
     def _send_text(self):
         t = self.txt_cmd.text().strip()
@@ -103,10 +108,17 @@ class VoiceMixin:
     def _refresh_voice(self, snap):
         n, b = self.node, self.backend
         vs = snap['voice_state']
-        self.lbl_voice_state.setText({'ready': '🟢 준비 — 버튼을 누르는 동안 말하세요',
+        self.lbl_voice_state.setText({'ready': '⚪ 준비 — 음성 명령 모드를 켜세요',
+                                      'listening': '🟢 듣는 중 — 「아리스 ...」 로 말하세요',
                                       'recording': '🔴 녹음 중...', 'recognizing': '⏳ 인식 중...',
                                       'loading': '⏳ Whisper 모델 로딩 중'}.get(vs, f'⚪ 음성 노드 없음 {vs}'))
-        self.btn_talk.setEnabled(vs in ('ready', 'recording'))
+        # 버튼은 노드의 실제 상태를 따른다 (듣는 중·인식 중 = ON)
+        on = vs in ('listening', 'recognizing')
+        self.btn_talk.blockSignals(True)
+        self.btn_talk.setChecked(on)
+        self.btn_talk.blockSignals(False)
+        self.btn_talk.setText(f'🎙 음성 명령 모드: {"ON — 듣는 중" if on else "OFF"}')
+        self.btn_talk.setEnabled(vs in ('ready', 'listening', 'recognizing'))
         v = snap['voice']
         if v is not None and v.stamp != self.last_voice_stamp:
             self.last_voice_stamp = v.stamp

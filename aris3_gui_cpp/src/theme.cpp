@@ -37,6 +37,8 @@ QPushButton:disabled { color: #6b6060; border-color: #4a3a20; }
 QPushButton#gold { color: #0b0f14; font-weight: 700; border: 1px solid #6b5014;
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffe08a, stop:0.45 #e8b931, stop:1 #a8801a); }
 QPushButton#gold:disabled { color: #4a3a20; background: #3a2e10; }
+/* 음성 명령 모드 ON: 시안 빛 테두리로 켜져 있음을 분명히 */
+QPushButton#gold:checked { border: 2px solid #5ff4ff; color: #0b0f14; }
 /* 정지: 밝은 빨강 + 노란 테두리 - 테마 빨강에 묻히지 않게 */
 QPushButton#estop { color: white; font-weight: 800; font-size: 12pt; border: 3px solid #ffd23f; border-radius: 6px;
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ff5a5f, stop:0.55 #d41b22, stop:1 #9e0f15); }

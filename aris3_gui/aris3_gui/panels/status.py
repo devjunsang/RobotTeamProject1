@@ -94,8 +94,8 @@ class StatusMixin:
         L['moveit'].setText(dot(s['moveit'], '준비' if s['moveit'] else '없음'))
         L['tm'].setText(dot(s['task_manager'], '준비' if s['task_manager'] else '없음'))
         vs = snap['voice_state']
-        L['voice'].setText(dot(s['voice'] and vs in ('ready', 'recording', 'recognizing'),
-                               {'ready': '준비', 'recording': '녹음 중', 'recognizing': '인식 중',
+        L['voice'].setText(dot(s['voice'] and vs in ('ready', 'listening', 'recording', 'recognizing'),
+                               {'ready': '준비', 'listening': '듣는 중 (아리스)', 'recording': '녹음 중', 'recognizing': '인식 중',
                                 'loading': '모델 로딩 중'}.get(vs, vs or '없음'), warn=vs == 'loading'))
 
         gs = snap['gesture_state']

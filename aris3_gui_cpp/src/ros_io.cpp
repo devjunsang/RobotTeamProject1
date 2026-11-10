@@ -100,6 +100,7 @@ GuiNode::GuiNode(const std::string & robot_ns, const std::string & camera_topic)
   gripper_client_ = create_client<aris3_interfaces::srv::GripperCommand>("/aris3/gripper/command",
     rclcpp::ServicesQoS(), cb_);
   pub_listen_ = create_publisher<std_msgs::msg::Bool>("/aris3/voice/listen", 10);
+  pub_active_ = create_publisher<std_msgs::msg::Bool>("/aris3/voice/active", 10);   // 음성 명령 모드 ON/OFF
   pub_text_ = create_publisher<std_msgs::msg::String>("/aris3/voice/text", 10);
   pub_traj_event_ = create_publisher<std_msgs::msg::String>("/trajectory_execution_event", 10);
 }
@@ -309,6 +310,13 @@ void GuiNode::voiceListen(bool on)
   std_msgs::msg::Bool m;
   m.data = on;
   pub_listen_->publish(m);
+}
+
+void GuiNode::voiceActive(bool on)
+{
+  std_msgs::msg::Bool m;
+  m.data = on;
+  pub_active_->publish(m);
 }
 
 void GuiNode::voiceText(const std::string & text)

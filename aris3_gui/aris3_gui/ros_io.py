@@ -136,6 +136,7 @@ class GuiNode(Node):
         self.move_client = ActionClient(self, MoveGroup, '/move_action', callback_group=cb)
         self.gripper_client = self.create_client(GripperCommand, '/aris3/gripper/command', callback_group=cb)
         self.pub_listen = self.create_publisher(Bool, '/aris3/voice/listen', 10)
+        self.pub_active = self.create_publisher(Bool, '/aris3/voice/active', 10)    # 음성 명령 모드 ON/OFF
         self.pub_text = self.create_publisher(String, '/aris3/voice/text', 10)
         self.pub_traj_event = self.create_publisher(String, '/trajectory_execution_event', 10)
 
@@ -410,6 +411,10 @@ class GuiNode(Node):
     # ================================================================== 음성
     def voice_listen(self, on):
         self.pub_listen.publish(Bool(data=on))
+
+    def voice_active(self, on):
+        """음성 명령 모드 켜기/끄기: 켜져 있는 동안 음성 노드가 계속 듣고 「아리스 ...」 만 명령으로 낸다."""
+        self.pub_active.publish(Bool(data=bool(on)))
 
     def voice_text(self, text):
         self.pub_text.publish(String(data=text))

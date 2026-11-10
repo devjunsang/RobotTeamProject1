@@ -95,8 +95,9 @@ public:
   // 그리퍼 (시뮬레이션 /aris3/gripper/command): 0 열기, 1 닫기
   void gripper(uint8_t command);
 
-  // 음성: 누르고 말하기 / 문장 입력
+  // 음성: 음성 명령 모드 ON/OFF (켜져 있는 동안 음성 노드가 계속 듣고 「아리스 ...」 만 명령으로 냄) / 문장 입력
   void voiceListen(bool on);
+  void voiceActive(bool on);
   void voiceText(const std::string & text);
 
 private:
@@ -116,7 +117,7 @@ private:
   rclcpp_action::Client<ExecuteTask>::SharedPtr task_client_;
   rclcpp_action::Client<moveit_msgs::action::MoveGroup>::SharedPtr move_client_;   // 준비 여부 확인용 (조그는 M2)
   rclcpp::Client<aris3_interfaces::srv::GripperCommand>::SharedPtr gripper_client_;
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_listen_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_listen_, pub_active_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_text_, pub_traj_event_;
 };
 

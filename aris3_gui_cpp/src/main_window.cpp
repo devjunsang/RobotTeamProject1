@@ -319,15 +319,21 @@ QWidget * MainWindow::buildVoicePanel()
   auto * p = new Panel(QStringLiteral("VOICE  음성 명령"));
   lbl_voice_state_ = new QLabel(QStringLiteral("—"));
   p->body()->addWidget(lbl_voice_state_);
-  btn_talk_ = nofocus(new QPushButton(QStringLiteral("🎤  누르고 말하기")));
+  // 음성 명령 모드 ON/OFF (2026-11-10): 켜 두면 계속 듣고 「아리스 ...」 로 시작하는 말만 명령으로 받는다
+  btn_talk_ = nofocus(new QPushButton(QStringLiteral("🎙  음성 명령 모드: OFF")));
   btn_talk_->setObjectName("gold");
+  btn_talk_->setCheckable(true);
   btn_talk_->setMinimumHeight(42);
-  connect(btn_talk_, &QPushButton::pressed, this, [this]() {node_->voiceListen(true);});
-  connect(btn_talk_, &QPushButton::released, this, [this]() {node_->voiceListen(false);});
+  btn_talk_->setToolTip(QStringLiteral("켜면 마이크가 계속 듣습니다. 「아리스 빨간 도형 잡아」 처럼 앞에 「아리스」 를 붙여 "
+                                       "말하세요.\n「아리스」 로 시작하지 않는 말은 무시합니다."));
+  connect(btn_talk_, &QPushButton::clicked, this, [this](bool on) {
+      node_->voiceActive(on);
+      node_->log("INFO", on ? "음성 명령 모드 켬 - 「아리스 ...」 로 말하세요" : "음성 명령 모드 끔");
+    });
   p->body()->addWidget(btn_talk_);
   auto * row = new QHBoxLayout;
   txt_cmd_ = new QLineEdit;
-  txt_cmd_->setPlaceholderText(QStringLiteral("또는 문장 입력 (예: 노란 큐브 집어줘)"));
+  txt_cmd_->setPlaceholderText(QStringLiteral("또는 문장 입력 (예: 아리스 빨간 도형 잡아)"));
   auto * b = nofocus(new QPushButton(QStringLiteral("해석")));
   auto send = [this]() {
       const QString t = txt_cmd_->text().trimmed();
@@ -504,8 +510,9 @@ void MainWindow::refresh()
   sys_["moveit"]->setText(theme::dot(f.moveit, f.moveit ? QStringLiteral("준비") : QStringLiteral("없음")));
   sys_["tm"]->setText(theme::dot(f.task_manager, f.task_manager ? QStringLiteral("준비") : QStringLiteral("없음")));
   const QString vs = QString::fromStdString(s.voice_state);
-  const bool voice_ok = f.voice && (vs == "ready" || vs == "recording" || vs == "recognizing");
-  sys_["voice"]->setText(theme::dot(voice_ok, vs.isEmpty() ? QStringLiteral("없음") : vs, vs == "loading"));
+  const bool voice_ok = f.voice && (vs == "ready" || vs == "listening" || vs == "recording" || vs == "recognizing");
+  sys_["voice"]->setText(theme::dot(voice_ok, vs.isEmpty() ? QStringLiteral("없음") :
+    vs == "listening" ? QStringLiteral("듣는 중 (아리스)") : vs, vs == "loading"));
   const QString gs = QString::fromStdString(s.gesture_state);
   sys_["gesture"]->setText(theme::dot(f.gesture && gs == "ready", gs.isEmpty() ? QStringLiteral("없음") : gs,
     gs == "loading"));
@@ -567,11 +574,18 @@ void MainWindow::refresh()
 
   // ---- 음성
   static const std::map<QString, QString> vtext = {
-    {"ready", "● 준비 — 버튼을 누르는 동안 말하세요"}, {"recording", "● 녹음 중..."},
-    {"recognizing", "⏳ 인식 중..."}, {"loading", "⏳ Whisper 모델 로딩 중"}};
+    {"ready", "○ 준비 — 음성 명령 모드를 켜세요"}, {"listening", "● 듣는 중 — 「아리스 ...」 로 말하세요"},
+    {"recording", "● 녹음 중..."}, {"recognizing", "⏳ 인식 중..."}, {"loading", "⏳ Whisper 모델 로딩 중"}};
   auto vt = vtext.find(vs);
   lbl_voice_state_->setText(vt == vtext.end() ? QStringLiteral("○ 음성 노드 없음 %1").arg(vs) : vt->second);
-  btn_talk_->setEnabled(vs == "ready" || vs == "recording");
+  // 버튼은 음성 노드의 실제 상태를 따른다 (듣는 중·인식 중 = ON)
+  const bool listening = vs == "listening" || vs == "recognizing";
+  btn_talk_->blockSignals(true);
+  btn_talk_->setChecked(listening);
+  btn_talk_->blockSignals(false);
+  btn_talk_->setText(listening ? QStringLiteral("🎙  음성 명령 모드: ON — 듣는 중") :
+    QStringLiteral("🎙  음성 명령 모드: OFF"));
+  btn_talk_->setEnabled(vs == "ready" || listening);
   if (s.voice) {
     const int64_t stamp = static_cast<int64_t>(s.voice->stamp.sec) * 1000000000LL + s.voice->stamp.nanosec;
     if (stamp != last_voice_stamp_) {
