@@ -1,0 +1,18 @@
+# 실물 카메라 보정 (서비스: /aris3/real/calibration, GUI -> aris3_real_bridge)  2026-11-10
+# 「손으로 가르쳐 주기」: ① 큐브 픽셀 기억 -> 조그로 그 큐브를 집는 자세까지 내림 -> ② 로봇 위치 기록, 4 점 이상.
+# 결과(점 개수·오차·행렬)는 /aris3/real/state 의 calib_* 로 나온다.
+
+uint8 REMEMBER=0                  # ① (u, v) 가까운 색 검출 큐브의 지금 픽셀을 기억 (검출이 없으면 실패)
+uint8 RECORD=1                    # ② 지금 TCP (x, y, z) 를 기억한 픽셀과 짝지어 기록 (label 은 큐브 이름)
+uint8 REMOVE_LAST=2
+uint8 CLEAR=3
+uint8 SAVE=4                      # ~/.config/aris3/real_camera_calib.json
+uint8 LOAD=5
+
+uint8 command
+float32 u                         # REMEMBER 에서만
+float32 v
+string label                      # RECORD 에서만
+---
+bool success
+string message                    # 사람이 읽는 결과 (실패 이유 포함)

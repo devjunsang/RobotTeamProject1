@@ -11,3 +11,5 @@ uint32 image_width
 uint32 image_height
 float32 confidence                # MediaPipe 손 판별 점수 0~1
 string handedness                 # "Left" | "Right" (MediaPipe 판단, 위에서 본 영상이라 뒤바뀔 수 있음)
+# --- 2026-11-10 추가: 「가리키고 멈추기」 진행 (선택 판단을 노드로 옮기면서, GUI 가 포인터 링을 그리는 데 씀)
+float32 hold_progress             # 0~1, 가리킨 채 멈춘 시간 / hold_sec. 1 에 닿으면 GestureEvent SELECT 를 한 번 냄

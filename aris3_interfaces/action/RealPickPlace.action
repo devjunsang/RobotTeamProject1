@@ -1,0 +1,32 @@
+# 실물 카메라 보정 기반 집기·놓기 (액션: /aris3/real/pick_place, GUI -> aris3_real_bridge)  2026-11-10
+# 대상은 영상 픽셀로 준다. 브리지가 움직이기 직전에 색 검출(/aris3/vision/detections_px)을 다시 읽어
+# 큐브의 지금 픽셀로 고치고, 카메라 보정으로 로봇 좌표를 계산한다 (aris3_gui real_pick.py 의 PickSequence 그대로).
+# 취소 = 로봇 정지, 남은 단계는 보내지 않는다. armed 가 아니거나 보정이 없으면 거부한다.
+
+# ---------------- Goal
+uint8 HOVER=0                     # 큐브 위 접근 높이(+100 mm)로 가서 멈춤                      (target)
+uint8 PICK=1                      # 접근 -> 열기 -> 하강 -> 닫기 -> 들기                         (target)
+uint8 PLACE_AT=2                  # 접근 높이로 -> 놓을 자리 위 -> 하강 -> 열기 -> 위로           (place)
+uint8 PICK_AND_PLACE=3            # PICK 후 PLACE_AT. 잡지 못했으면(빈손·모름) 옮기지 않음        (target, place)
+uint8 PLACE_HERE=4                # 지금 XY 에서 하강 -> 열기 -> 위로                            (없음)
+
+uint8 kind
+string target_name                # 로그·화면용 이름 ("yellow", "blue_cube")
+float32 target_u                  # 큐브 픽셀
+float32 target_v
+float32 place_u                   # 놓을 자리 픽셀
+float32 place_v
+---
+# ---------------- Result
+uint8 HOLD_UNKNOWN=0
+uint8 HOLD_YES=1
+uint8 HOLD_NO=2
+bool success
+uint8 holding                     # 끝난 뒤 그리퍼가 물체를 잡고 있는가
+string message
+---
+# ---------------- Feedback
+string step                       # "접근", "열기", "하강", "닫기", "들기", "놓을 자리 위", ...
+uint8 step_index                  # 0 부터
+uint8 step_count
+string detail                     # 사람이 읽는 설명 (좌표 포함)
