@@ -7,6 +7,10 @@ string target_color               # "red" | "green" | "blue"
 string target_shape               # "" = 모양 상관없음
 string destination                # 목표 구역 이름: "A" | "B" | "C"
 bool dry_run                      # true: 검증·인식·계획까지만 하고 로봇은 움직이지 않음
+# --- 2026-11-09 추가 (손짓 상호작용용, 비워 두면 위의 기존 방식 그대로)
+string target_id                  # 비전이 붙인 물체 이름 (예: "blue_cube"). 있으면 색·모양 대신 이것으로 고른다
+bool use_place_position           # true: destination 구역 대신 place_position 에 놓는다
+geometry_msgs/Point place_position  # 놓을 자리 (world_frame 기준 x, y [m]. z 는 무시 - 탁자 표면)
 ---
 # ---------------- Result (결과)
 uint8 ERROR_NONE=0

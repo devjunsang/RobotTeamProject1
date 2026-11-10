@@ -13,6 +13,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DetectedObjectArray.msg"
   "msg/TaskStatus.msg"
   "msg/VoiceCommand.msg"
+  "msg/HandGesture.msg"
   "srv/GripperCommand.srv"
   "action/ExecuteTask.action"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
