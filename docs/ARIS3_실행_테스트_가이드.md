@@ -5,6 +5,43 @@ GUI 하나(ARIS3 Control Station)로 Gazebo 시뮬레이션을 띄우고 Pick & 
 
 ---
 
+## ★ ARIS (C++) 로 실행하기 — 2026-11-12 최신
+
+지금 주로 쓰는 화면은 **ARIS**(`aris3_gui_cpp`)입니다. 아래 한 줄이면 됩니다.
+
+```bash
+source ~/ros2_ws/install/setup.bash
+export ANTHROPIC_API_KEY=...        # 음성 LLM 해석용. ~/.bashrc 에 넣어 두면 편함 (저장소에는 넣지 않음)
+ros2 run aris3_gui_cpp aris
+```
+
+1. 실물 로봇(110.120.1.66:12345)이 응답하지 않으면 **시뮬레이션으로 시작**합니다. ARIS가 Gazebo 월드
+   (`aris3_real_sim.launch.py`)를 직접 띄우고, 창을 닫으면 같이 끕니다. 월드를 따로 띄울 필요가 없습니다.
+2. 월드 준비가 끝나면(Gazebo 팔 관절 상태가 8초 동안 끊김 없이 들어옴) **접속 → 조작 허용 → 홈 자세**로 저절로 갑니다.
+   실물이면 접속 전에 확인창을 한 번 띄웁니다. 끄려면 `--no-auto-home`.
+3. 「음성 명령 모드」를 켜고 「아리스, 노란 큐브 잡아」처럼 말합니다. ARIS가 「네, 노란색 큐브를 잡습니다.」라고 대답합니다.
+
+음성 가상환경에 더 필요한 패키지 (LLM·목소리·GPU 인식):
+
+```bash
+P="python3 -m pip --python $HOME/venvs/mark1_voice/bin/python install"
+$P anthropic edge-tts nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+```
+
+문제가 생기면:
+
+| 증상 | 원인 · 해결 |
+|---|---|
+| 카메라 영상이 안 나옴 | Gazebo 창을 닫으면 월드가 꺼진다. ARIS를 다시 띄운다 |
+| 홈·가동은 「완료」인데 Gazebo 팔이 웅크린 채 그대로 | 월드가 뜨는 중에 가상 컨트롤러가 움직여 Gazebo 팔이 관절 한계에 걸려 굳음. 지금은 ARIS가 월드 준비를 기다린 뒤 접속한다 (2026-11-12 수정) |
+| ARIS 목소리가 블루투스 이어폰으로 나옴 | 음성 노드 파라미터 `tts_output` 이 `internal` 인지 확인 |
+| 「LLM 해석 끔: API 키 없음」 로그 | ARIS를 띄운 터미널에 `ANTHROPIC_API_KEY` 가 없음. 낱말 표 해석기로 계속 동작 |
+| 말을 자꾸 못 알아들음 | `/tmp/aris_voice.log` 에서 Whisper가 적은 글자를 본다. 「Whisper large-v3-turbo (cuda…) 준비」 가 아니면 GPU 라이브러리 설치 확인 |
+
+로그 위치: ARIS 화면 로그, `/tmp/aris_voice.log`(음성), `/tmp/aris_real_bridge.log`(브리지), `/tmp/aris_sim_world.log`(월드).
+
+---
+
 ## 0. 처음 한 번만 (새 PC)
 
 ```bash

@@ -73,6 +73,7 @@ tr:last-child td { border-bottom: 0; }
 <div class="layout">
 <aside class="toc" aria-label="목차"><a class="home" href="index.html">← 문서 목록</a><div class="toc-title">목차</div><div class="toc">
 <ul>
+<li><a href="#aris-c-2026-11-12">★ ARIS (C++) 로 실행하기 — 2026-11-12 최신</a></li>
 <li><a href="#0-pc">0. 처음 한 번만 (새 PC)</a></li>
 <li><a href="#1">1. 빌드 (코드를 받거나 바꾼 뒤마다)</a></li>
 <li><a href="#2">2. 실행</a></li>
@@ -93,6 +94,62 @@ tr:last-child td { border-bottom: 0; }
 
 <p>GUI 하나(ARIS3 Control Station)로 Gazebo 시뮬레이션을 띄우고 Pick &amp; Place 를 시험하는 순서.
 최종 목표(손짓으로 물체를 가리켜 옮기기)의 1단계인 <strong>「물체 이름 + 좌표에 놓기」</strong> 까지 포함한다.</p>
+<hr />
+<h2 id="aris-c-2026-11-12">★ ARIS (C++) 로 실행하기 — 2026-11-12 최신</h2>
+<p>지금 주로 쓰는 화면은 <strong>ARIS</strong>(<code>aris3_gui_cpp</code>)입니다. 아래 한 줄이면 됩니다.</p>
+<pre><code class="language-bash">source ~/ros2_ws/install/setup.bash
+export ANTHROPIC_API_KEY=...        # 음성 LLM 해석용. ~/.bashrc 에 넣어 두면 편함 (저장소에는 넣지 않음)
+ros2 run aris3_gui_cpp aris
+</code></pre>
+<ol>
+<li>
+<p>실물 로봇(110.120.1.66:12345)이 응답하지 않으면 <strong>시뮬레이션으로 시작</strong>합니다. ARIS가 Gazebo 월드
+   (<code>aris3_real_sim.launch.py</code>)를 직접 띄우고, 창을 닫으면 같이 끕니다. 월드를 따로 띄울 필요가 없습니다.</p>
+</li>
+<li>
+<p>월드 준비가 끝나면(Gazebo 팔 관절 상태가 8초 동안 끊김 없이 들어옴) <strong>접속 → 조작 허용 → 홈 자세</strong>로 저절로 갑니다.
+   실물이면 접속 전에 확인창을 한 번 띄웁니다. 끄려면 <code>--no-auto-home</code>.</p>
+</li>
+<li>
+<p>「음성 명령 모드」를 켜고 「아리스, 노란 큐브 잡아」처럼 말합니다. ARIS가 「네, 노란색 큐브를 잡습니다.」라고 대답합니다.</p>
+</li>
+</ol>
+<p>음성 가상환경에 더 필요한 패키지 (LLM·목소리·GPU 인식):</p>
+<pre><code class="language-bash">P=&quot;python3 -m pip --python $HOME/venvs/mark1_voice/bin/python install&quot;
+$P anthropic edge-tts nvidia-cublas-cu12 &quot;nvidia-cudnn-cu12==9.*&quot;
+</code></pre>
+<p>문제가 생기면:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>증상</th>
+<th>원인 · 해결</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>카메라 영상이 안 나옴</td>
+<td>Gazebo 창을 닫으면 월드가 꺼진다. ARIS를 다시 띄운다</td>
+</tr>
+<tr>
+<td>홈·가동은 「완료」인데 Gazebo 팔이 웅크린 채 그대로</td>
+<td>월드가 뜨는 중에 가상 컨트롤러가 움직여 Gazebo 팔이 관절 한계에 걸려 굳음. 지금은 ARIS가 월드 준비를 기다린 뒤 접속한다 (2026-11-12 수정)</td>
+</tr>
+<tr>
+<td>ARIS 목소리가 블루투스 이어폰으로 나옴</td>
+<td>음성 노드 파라미터 <code>tts_output</code> 이 <code>internal</code> 인지 확인</td>
+</tr>
+<tr>
+<td>「LLM 해석 끔: API 키 없음」 로그</td>
+<td>ARIS를 띄운 터미널에 <code>ANTHROPIC_API_KEY</code> 가 없음. 낱말 표 해석기로 계속 동작</td>
+</tr>
+<tr>
+<td>말을 자꾸 못 알아들음</td>
+<td><code>/tmp/aris_voice.log</code> 에서 Whisper가 적은 글자를 본다. 「Whisper large-v3-turbo (cuda…) 준비」 가 아니면 GPU 라이브러리 설치 확인</td>
+</tr>
+</tbody>
+</table></div>
+<p>로그 위치: ARIS 화면 로그, <code>/tmp/aris_voice.log</code>(음성), <code>/tmp/aris_real_bridge.log</code>(브리지), <code>/tmp/aris_sim_world.log</code>(월드).</p>
 <hr />
 <h2 id="0-pc">0. 처음 한 번만 (새 PC)</h2>
 <pre><code class="language-bash"># 그리퍼 모델 (ROBOTIS)
