@@ -68,6 +68,7 @@ public:
   void recoverHome(int speed_pct);                      // 안전 정지 해제/서보 켜기 -> 자동 모드 -> 홈
   void stretch(int speed_pct);                          // 가동 자세: 모든 관절 0° (팔을 위로 일자로 펴기)
   void resumePick();                                    // 정지로 끊긴 집기 순서를 멈춘 단계부터 이어서
+  bool bridgeReady();                                   // 브리지의 접속 서비스가 보이는가 (창을 연 직후 자동 접속용)
   // 손으로 움직이기: (수동 모드인가 - 모르면 nullopt, 바꾸는 중인가, 모드 이름)
   std::optional<bool> handGuide(bool & switching, QString & name);
   void setHandGuide(bool on);
@@ -104,7 +105,8 @@ private:
   rclcpp_action::Client<Motion>::SharedPtr motion_client_;
   rclcpp_action::Client<PickPlace>::SharedPtr pick_client_;
 
-  LaunchProc bridge_, voice_, gesture_;
+  // world_: 시뮬레이션(virtual)일 때만 띄우는 실물 비슷한 월드 (aris3_real_sim.launch.py - Gazebo·카메라·그리퍼)
+  LaunchProc world_, bridge_, voice_, gesture_;
 };
 
 }  // namespace aris

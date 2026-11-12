@@ -107,3 +107,36 @@ TEST(PinholeCamera, QuatApplyRotatesVector)
   EXPECT_NEAR(r[1], 1.0, 1e-12);
   EXPECT_NEAR(r[2], 0.0, 1e-12);
 }
+
+// 받침에 맞는 조사: 큐브를 / 삼각형을 / 원을 / 한글 아닌 말은 「를」.
+TEST(VoiceReply, JosaFollowsFinalConsonant)
+{
+  EXPECT_EQ(aris::josa("큐브", "을", "를"), "를");
+  EXPECT_EQ(aris::josa("삼각형", "을", "를"), "을");
+  EXPECT_EQ(aris::josa("원", "이", "가"), "이");
+  EXPECT_EQ(aris::josa("ABC", "을", "를"), "를");
+  EXPECT_EQ(aris::josa("", "을", "를"), "를");
+}
+
+// 사용자가 원한 예: 「노란색 큐브 잡아」 -> 「네, 노란색 큐브를 잡습니다.」 그 밖의 동작도 한 문장씩.
+TEST(VoiceReply, SentencesForEachAction)
+{
+  EXPECT_EQ(aris::voiceReply("pick", "yellow", "cube", false), "네, 노란색 큐브를 잡습니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "blue", "", false), "네, 파란색 큐브를 잡습니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "red", "triangle", false), "네, 빨간색 삼각형을 잡습니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "", "", false), "네, 고르신 물체를 잡습니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "red", "", true), "네, 빨간색 큐브를 집어서 고르신 자리로 옮깁니다.");
+  EXPECT_EQ(aris::voiceReply("home", "", "", false), "네, 홈 자세로 돌아갑니다.");
+  EXPECT_EQ(aris::voiceReply("stop", "", "", false), "네, 멈춥니다.");
+  EXPECT_EQ(aris::voiceReply("", "", "", false), "잘 못 알아들었어요. 다시 말씀해 주세요.");
+}
+
+// 어떤 대답에도 호출어 「아리스」 가 없다 (마이크가 다시 들어도 명령이 되지 않게).
+TEST(VoiceReply, NeverContainsWakeWord)
+{
+  for (const char * a : {"pick", "place", "home", "stop", "resume", "power_on", "disconnect", ""}) {
+    for (bool rp : {false, true}) {
+      EXPECT_EQ(aris::voiceReply(a, "yellow", "cube", rp).find("아리스"), std::string::npos) << a;
+    }
+  }
+}

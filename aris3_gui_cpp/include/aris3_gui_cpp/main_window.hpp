@@ -60,6 +60,9 @@ public:
 
   // 시험용 (명령줄 --connect / --task): 버튼을 누른 것과 같은 동작
   void connectNow() {onConnect();}
+  // 창을 연 직후 (실물·시뮬레이션 공통, 2026-11-11 사용자 결정): 접속 -> 조작 허용 -> 홈 자세로 시작.
+  // 실물이면 접속 확인창은 한 번 띄운다 (「아니오」 면 아무것도 하지 않음). 끄려면 명령줄 --no-auto-home
+  void startAtHome();
   void queueTask(const std::string & color, const std::string & zone, bool dry = false);
   void startQueue() {onStartQueue();}
   // 시험용 (--selftest): 조작 허용 -> 홈 -> TCP +Z -> J1 +10° -> 화면 선택(파랑 큐브 -> 빈 곳) 작업.
@@ -120,6 +123,7 @@ private:
   void realVoice(const aris3_interfaces::msg::VoiceCommand & v);
   void homeVoice(const QString & heard);
   void powerOnTick();                                   // 「가동」 대기: 준비되면 가동 자세로
+  void startHomeTick();                                 // 창을 연 직후 홈 시작: 단계별로 진행 (refreshReal 에서 부름)
   void recoverHome();
   void toggleHandGuide(bool on);
   // ---- 주기 갱신
@@ -177,6 +181,11 @@ private:
   // 「아리스 가동」: 접속이 끝나고(대기) 조작 허용이 켜지면 팔을 편다. 이 시각까지 기다린다 (없으면 대기 안 함)
   std::optional<std::chrono::steady_clock::time_point> power_on_until_;
   bool power_on_arm_warned_ = false;
+  // 창을 연 직후 홈 시작: 0 = 브리지 기다림 -> 1 = 접속 기다림 -> 2 = 조작 허용 기다림 -> 끝(nullopt)
+  std::optional<std::chrono::steady_clock::time_point> start_home_until_;
+  int start_home_step_ = 0;
+  // 시뮬레이션: Gazebo 팔 관절 상태가 끊김 없이 들어오기 시작한 시각 (월드 준비 확인용)
+  std::optional<std::chrono::steady_clock::time_point> world_seen_;
 
   // ---- 실물 모드
   Backend * backend_base_{nullptr};

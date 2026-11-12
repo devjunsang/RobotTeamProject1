@@ -362,7 +362,7 @@ QWidget * MainWindow::buildVoicePanel()
   p->body()->addWidget(lbl_voice_state_);
   // 음성 명령 모드 ON/OFF (2026-11-10): 켜 두면 계속 듣고 「아리스 ...」 로 시작하는 말만 명령으로 받는다
   btn_talk_ = nofocus(new QPushButton(QStringLiteral("🎙  음성 명령 모드: OFF")));
-  btn_talk_->setObjectName("gold");
+  btn_talk_->setObjectName("voice");                 // 붉은 판 + 선명한 금색 글자 (theme.cpp QPushButton#voice)
   btn_talk_->setCheckable(true);
   btn_talk_->setMinimumHeight(42);
   btn_talk_->setToolTip(QStringLiteral("켜면 마이크가 계속 듣습니다. 「아리스 빨간 도형 잡아」 처럼 앞에 「아리스」 를 붙여 "
@@ -725,8 +725,12 @@ void MainWindow::onVoiceRun(bool automatic)
   }
   if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect") {
     node_->log("WARN", "음성 「" + v->text + "」: 실물 모드(--mode real)에서만 지원 - 시뮬레이션 모드는 Connect 버튼을 쓰세요");
+    node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;
   }
+  // 예전 시뮬레이션 모드(MoveIt)의 대답: 조작 허용이 꺼져 있으면 그 이유를, 아니면 「네, …」
+  node_->say(!chk_arm_->isChecked() && v->action == "home" ? std::string("조작 허용을 먼저 켜 주세요.") :
+    voiceReply(v->action, v->color, v->shape, v->refers_selected_place));
   if (v->action == "place") {
     node_->log("WARN", "「내려놔」(집은 자리에 놓기)는 Task Manager 의 pick/place 분리 후 지원 예정 - "
       "지금은 집기 명령이 놓기까지 한 번에 수행합니다");
@@ -930,11 +934,16 @@ void MainWindow::refresh()
         // 「아리스 멈춰」: 정지 버튼과 같다. 다른 검사 없이 바로 (인식까지 약 1 초 걸린다 - 비상정지 대신이 아님)
         node_->log("WARN", "음성 「" + s.voice->text + "」 -> 정지");
         onStop();
+        node_->say(voiceReply("stop", "", "", false));
       } else if (s.voice->valid && real_) {
         // 실물: 인식되면 바로 확인창 (예 를 눌러야 움직임). 주기 갱신 밖에서 연다
         QTimer::singleShot(0, this, [this]() {onVoiceRun(true);});
       } else if (s.voice->valid && chk_voice_auto_->isChecked()) {
         onVoiceRun(true);
+      }
+      if (!s.voice->valid && !s.voice->text.empty()) {
+        // 알아듣지 못한 말 (호출어 뒤 말이 명령이 아님 등). 녹음이 짧거나 인식 실패(글자 없음)면 말하지 않는다
+        node_->say(voiceReply("", "", "", false));
       }
     }
   }

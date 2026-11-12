@@ -181,6 +181,7 @@ void MainWindow::refreshReal(const Snapshot & s)
   }
   gestureTick(s);
   powerOnTick();                                     // 「아리스 가동」 대기
+  startHomeTick();                                   // 창을 연 직후: 접속 -> 조작 허용 -> 홈
   // 로봇 상태·복구 버튼·손으로 움직이기
   const QString st = real_->robotStateText();
   const bool bad = st != QStringLiteral("대기") && st != QStringLiteral("이동 중");
@@ -373,9 +374,23 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
   }
   if (real_->pickRunning() || dialog_open_) {
     node_->log("WARN", "음성 「" + v.text + "」 무시: 이전 순서 진행 중이거나 확인창이 떠 있음");
+    node_->say("지금은 다른 작업을 하고 있어요.");
     return;
   }
   const QString heard = QStringLiteral("음성: 「%1」").arg(QString::fromStdString(v.text));
+  // ARIS 목소리 (2026-11-11): 실행하면 「네, 노란색 큐브를 잡습니다.」, 못 하면 그 이유를 말한다.
+  // 움직이는 명령은 아래 동작 함수가 하는 검사(조작 허용·준비·보정·놓을 자리)를 먼저 해 보고 대답을 고른다.
+  const auto obj = objectKo(v.color, v.shape);
+  const auto refuse = [&](bool need_calib, bool need_place) -> std::string {
+      if (!chk_arm_->isChecked()) {return "조작 허용을 먼저 켜 주세요.";}
+      if (!whyNotReady().isEmpty()) {return "아직 움직일 준비가 되지 않았어요.";}
+      if (need_calib && !real_->calibReady()) {return "카메라 보정이 아직 없어요.";}
+      if (need_place && !place_px_) {return "놓을 자리를 화면에서 먼저 골라 주세요.";}
+      return std::string();
+    };
+  const auto answer = [&](const std::string & why_not) {
+      node_->say(why_not.empty() ? voiceReply(v.action, v.color, v.shape, v.refers_selected_place) : why_not);
+    };
   // 음성으로 시작한 동작은 확인창 없이 바로 실행한다 (사용자 결정 2026-11-11).
   // 조작 허용 확인(armOk)과 정지는 그대로 동작한다. 이 함수를 벗어나면 다시 묻는다 (손짓·버튼은 계속 확인창).
   struct DirectGuard {
@@ -385,6 +400,7 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
   } direct(voice_direct_);
   if (v.action == "disconnect") {                   // 「아리스 연결해제」: 접속 끊기 (서보 꺼짐, 브레이크)
     power_on_until_.reset();
+    answer("");
     onDisconnect();
     return;
   }
@@ -394,24 +410,32 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
     }
     power_on_until_ = std::chrono::steady_clock::now() + std::chrono::seconds(90);
     power_on_arm_warned_ = false;
+    node_->say(chk_arm_->isChecked() ? voiceReply("power_on", "", "", false) :
+      std::string("네, 가동합니다. 조작 허용을 켜 주시면 팔을 펴겠습니다."));
     node_->log("INFO", "가동: 접속 확인 -> 준비되면 팔을 위로 일자로 폅니다 (조작 허용 필요)");
     return;
   }
   if (v.action == "resume") {                       // 「아리스 계속해」: 정지로 끊긴 집기 순서를 이어서
+    answer(refuse(false, false));
     if (armOk("이어서 하기")) {
       real_->resumePick();
     }
     return;
   }
   if (v.action == "home") {                         // 「아리스 홈으로」
+    answer(refuse(false, false));
     homeVoice(heard);
     return;
   }
   if (v.refers_selected_place && v.color.empty() && real_->holding().value_or(false)) {
+    const auto why = refuse(true, true);
+    node_->say(why.empty() ? voiceReply("place", "", "", true) : why);
     placeSelected(heard);                            // 들고 있을 때 「저기 놔줘」 = 고른 자리에 놓기
     return;
   }
   if (v.action == "place") {
+    const auto why = refuse(true, false);
+    node_->say(why.empty() ? voiceReply("place", "", "", false) : why);
     placeHere(heard);
     return;
   }
@@ -422,11 +446,13 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
     }
     if (same.empty()) {
       node_->log("WARN", "음성: 카메라에 " + v.color + " 큐브가 보이지 않음");
+      node_->say("카메라에 " + obj + josa(obj, "이", "가") + " 보이지 않아요.");
       return;
     }
     if (same.size() > 1) {
       node_->log("WARN", "음성: " + v.color + " 큐브가 " + std::to_string(same.size()) +
         "개 - 화면에서 클릭한 뒤 「아리스 이거 집어줘」");
+      node_->say(obj + josa(obj, "이", "가") + " 여러 개 있어요. 화면에서 하나를 골라 주세요.");
       return;
     }
     pick_px_ = std::array<double, 2>{same[0].pose.pose.position.x, same[0].pose.pose.position.y};
@@ -434,8 +460,10 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
     updatePickLabel();
   } else if (!pick_px_) {                            // 「이거 집어줘」
     node_->log("WARN", "「이거」 가 무엇인지 모름 - 먼저 카메라 화면에서 큐브를 클릭하거나 가리키세요");
+    node_->say("어떤 물체인지 화면에서 먼저 골라 주세요.");
     return;
   }
+  answer(refuse(true, v.refers_selected_place));
   if (v.refers_selected_place) {                     // 「이거 저기로 옮겨줘」: 집어서 고른 자리에 놓기
     pickAndPlace(heard);
   } else {
@@ -465,6 +493,72 @@ void MainWindow::powerOnTick()
   power_on_until_.reset();
   node_->log("INFO", "가동: 팔을 위로 일자로 폅니다 (모든 관절 0°) - 집기 전에는 「아리스 홈」");
   real_->stretch(sld_speed_->value());
+}
+
+// 창을 연 직후 홈 시작 (예약만 하고, 진행은 startHomeTick 이 주기마다)
+void MainWindow::startAtHome()
+{
+  if (!real_) {return;}
+  start_home_until_ = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+  start_home_step_ = 0;
+  node_->log("INFO", "시작: 접속 -> 조작 허용 -> 홈 자세 순서로 준비합니다 (끄려면 --no-auto-home)");
+}
+
+void MainWindow::startHomeTick()
+{
+  if (!start_home_until_) {return;}
+  if (std::chrono::steady_clock::now() > *start_home_until_) {   // 3 분 안에 못 하면 그만 (사람이 버튼으로)
+    start_home_until_.reset();
+    node_->log("WARN", "시작 홈: 3 분 안에 준비되지 않아 취소 - Connect·조작 허용·Home 을 직접 누르세요");
+    return;
+  }
+  const auto s = real_->state();
+  switch (start_home_step_) {
+    case 0: {                                        // 브리지가 뜨면 접속 (이미 접속돼 있으면 건너뜀)
+        if (!real_->bridgeReady() || !s) {return;}
+        // 시뮬레이션: Gazebo 월드가 다 뜬 뒤에 접속한다. 월드가 뜨는 중(제어기 켜기 전)에 가상 컨트롤러가 홈으로
+        // 움직이면 Gazebo 팔이 관절 한계에 걸려 굳고 따라오지 않았다 (2026-11-11). 팔 관절 상태가 8 초 동안
+        // 끊김 없이 들어오면(관절 상태 방송 -> 팔 제어기 켜기 -> 큐브 배치가 끝남) 준비된 것으로 본다.
+        if (backend_->isVirtual()) {
+          const auto now = std::chrono::steady_clock::now();
+          if (!node_->statusFlags().joint_states) {
+            world_seen_.reset();
+            return;
+          }
+          if (!world_seen_) {world_seen_ = now;}
+          if (now - *world_seen_ < std::chrono::seconds(8)) {return;}
+        }
+        if (s->connected || s->connecting) {
+          start_home_step_ = 1;
+          return;
+        }
+        if (!backend_->isVirtual() && !ask(QStringLiteral("시작: 로봇 접속 후 홈으로"),
+            QStringLiteral("실물 로봇에 접속하고 바로 홈 자세 [0, 0, 90, 0, 90, 0]° 로 움직입니다 (속도 %1 %).\n\n"
+                           "로봇 주변(손 포함)이 비었고, 비상정지를 누를 수 있습니까?").arg(sld_speed_->value())))
+        {
+          start_home_until_.reset();
+          node_->log("INFO", "시작 홈: 취소 (Connect·조작 허용·Home 을 직접 누르세요)");
+          return;
+        }
+        backend_->connectRobot();
+        start_home_step_ = 1;
+        return;
+      }
+    case 1: {                                        // 접속 절차가 끝나 움직일 수 있으면 조작 허용
+        const bool ready = s && s->connected && s->robot_state_ok && !s->connecting && s->why_not_ready.empty();
+        if (!ready) {return;}
+        if (!chk_arm_->isChecked()) {chk_arm_->setChecked(true);}   // 로그 「조작 허용 켬」 + 브리지에도 전달
+        start_home_step_ = 2;
+        return;
+      }
+    case 2: {                                        // 브리지에 조작 허용이 반영되면 홈
+        if (!(s && s->armed)) {return;}
+        start_home_until_.reset();
+        node_->log("INFO", "시작: 홈 자세로 이동합니다");
+        onHome();
+        return;
+      }
+  }
 }
 
 void MainWindow::homeVoice(const QString & heard)

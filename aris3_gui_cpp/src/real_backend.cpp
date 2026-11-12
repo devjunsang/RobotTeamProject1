@@ -16,6 +16,8 @@ const std::string P = "/aris3/real/";
 RealBackend::RealBackend(std::shared_ptr<GuiNode> node, const std::string & ns, const std::string & host, int port,
   double z_min_mm, bool voice, bool gesture, bool virtual_mode)
 : node_(std::move(node)), virtual_(virtual_mode),
+  world_(QStringLiteral("시뮬레이션 월드(Gazebo)"), {"aris3_bringup", "aris3_real_sim.launch.py"},
+    QStringLiteral("ros2 launch aris3_bringup aris3_real_sim.launch.py"), QStringLiteral("/tmp/aris_sim_world.log")),
   // 실제 노드 프로세스만 찾는 패턴 (느슨하면 그 문자열이 든 다른 명령줄에도 걸린다 - aris3_gui 에서 겪음)
   bridge_(QStringLiteral("실물 브리지"),
     QStringList{"aris3_real_bridge", "real_bridge.launch.py", QString::fromStdString("ns:=" + ns),
@@ -43,6 +45,11 @@ RealBackend::RealBackend(std::shared_ptr<GuiNode> node, const std::string & ns, 
   motion_client_ = rclcpp_action::create_client<Motion>(node_, P + "motion");
   pick_client_ = rclcpp_action::create_client<PickPlace>(node_, P + "pick_place");
 
+  // 시뮬레이션이면 월드부터 (이미 떠 있으면 그것을 씀). Gazebo 통신은 루프백에 고정 (Wi-Fi 가 바뀌어도 끊기지 않게)
+  if (virtual_) {
+    if (!qEnvironmentVariableIsSet("GZ_IP")) {qputenv("GZ_IP", "127.0.0.1");}
+    node_->log("INFO", (world_.start() + " - Gazebo 가 뜨는 데 20~30 초").toStdString());
+  }
   // 보조 노드 띄우기 (이미 돌고 있으면 그것을 씀)
   for (LaunchProc * lp : {&bridge_}) {node_->log("INFO", lp->start().toStdString());}
   if (voice) {node_->log("INFO", (voice_.start() + " - Whisper 로딩 10~30 초").toStdString());}
@@ -121,6 +128,7 @@ void RealBackend::sendAction(typename rclcpp_action::Client<A>::SharedPtr client
 
 // ---------------------------------------------------------------- 연결
 void RealBackend::connectRobot() {callTrigger("connect", "로봇 접속");}
+bool RealBackend::bridgeReady() {return trig_.at("connect")->service_is_ready();}
 void RealBackend::disconnectRobot() {callTrigger("disconnect", "접속 끊기");}
 
 bool RealBackend::connected()
@@ -146,6 +154,7 @@ void RealBackend::shutdown()
   voice_.stop();
   gesture_.stop();
   bridge_.stop(25.0);
+  world_.stop(20.0);                                  // 이 화면이 띄운 시뮬레이션 월드만 (따로 띄운 월드는 그대로)
 }
 
 // ---------------------------------------------------------------- 상태

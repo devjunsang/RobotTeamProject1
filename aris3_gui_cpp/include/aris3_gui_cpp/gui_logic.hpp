@@ -3,6 +3,7 @@
 //   isArisLog     : 「ARIS 로그만」 거르기 (aris3_gui ros_io.LOG_NODES·NOISE 와 같은 규칙)
 //   StageTracker  : ExecuteTask feedback 의 단계 이름으로 단계별 상태(대기/실행/완료/실패)·걸린 시간을 계산
 //   PinholeCamera : 카메라 TF + 화각으로 world 점 <-> 영상 픽셀 (aris3_gui widgets.CameraView.project/unproject 와 같음)
+//   voiceReply 등 : ARIS 목소리로 말할 대답 문장 (「네, 노란색 큐브를 잡습니다.」)
 #pragma once
 
 #include <array>
@@ -87,5 +88,17 @@ struct PinholeCamera
   // 영상 픽셀 -> world 평면 z = plane_z 위의 (x, y). 평면과 만나지 않으면 없음
   std::optional<std::array<double, 2>> unproject(double u, double v, double plane_z) const;
 };
+
+// ---- ARIS 목소리 대답 (2026-11-11). 문장에 「아리스」 를 넣지 않는다: 마이크가 이 소리를 다시 들어도
+//      호출어가 없어 명령으로 받지 않게.
+// 받침에 맞는 조사: 마지막 글자에 받침이 있으면 with_final(을·이), 없으면 without(를·가). 한글이 아니면 without
+std::string josa(const std::string & word, const std::string & with_final, const std::string & without);
+// 색 이름 (red -> 빨간색). 모르는 색은 빈 문자열
+std::string colorKo(const std::string & color);
+// 말할 물체 이름: 「노란색 큐브」 「파란색 삼각형」. 색·도형이 없으면 「고르신 물체」
+std::string objectKo(const std::string & color, const std::string & shape);
+// 명령을 받아 실행할 때의 대답: 「네, 노란색 큐브를 잡습니다.」. 모르는 동작이면 다시 말해 달라는 문장
+std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
+  bool ref_place);
 
 }  // namespace aris

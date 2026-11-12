@@ -121,6 +121,7 @@ public:
   void voiceListen(bool on);
   void voiceActive(bool on);
   void voiceText(const std::string & text);
+  void say(const std::string & text);                  // ARIS 목소리로 말하기 (/aris3/voice/say -> 음성 노드)
 
 private:
   void addLog(const std::string & level, const std::string & node, const std::string & text);
@@ -145,7 +146,7 @@ private:
   rclcpp_action::Client<moveit_msgs::action::MoveGroup>::SharedPtr move_client_;   // 준비 여부 확인용 (조그는 M2)
   rclcpp::Client<aris3_interfaces::srv::GripperCommand>::SharedPtr gripper_client_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_listen_, pub_active_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_text_, pub_traj_event_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_text_, pub_traj_event_, pub_say_;
   std::shared_ptr<tf2_ros::Buffer> tf_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };

@@ -120,6 +120,7 @@ GuiNode::GuiNode(const std::string & robot_ns, const std::string & camera_topic)
   pub_listen_ = create_publisher<std_msgs::msg::Bool>("/aris3/voice/listen", 10);
   pub_active_ = create_publisher<std_msgs::msg::Bool>("/aris3/voice/active", 10);   // 음성 명령 모드 ON/OFF
   pub_text_ = create_publisher<std_msgs::msg::String>("/aris3/voice/text", 10);
+  pub_say_ = create_publisher<std_msgs::msg::String>("/aris3/voice/say", 10);     // ARIS 목소리 (음성 노드가 말함)
   pub_traj_event_ = create_publisher<std_msgs::msg::String>("/trajectory_execution_event", 10);
   tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_);
@@ -547,4 +548,13 @@ void GuiNode::voiceText(const std::string & text)
   pub_text_->publish(m);
 }
 
+void GuiNode::say(const std::string & text)
+{
+  std_msgs::msg::String m;
+  m.data = text;
+  pub_say_->publish(m);
+  log("INFO", "ARIS: 「" + text + "」");
+}
+
 }  // namespace aris
+

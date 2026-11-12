@@ -133,4 +133,52 @@ std::optional<std::array<double, 2>> PinholeCamera::unproject(double u, double v
   return std::array<double, 2>{o[0] + s * d[0], o[1] + s * d[1]};
 }
 
+// ======================================================================== ARIS 목소리 대답
+std::string josa(const std::string & word, const std::string & with_final, const std::string & without)
+{
+  // UTF-8 마지막 글자(한글은 3바이트)를 코드 포인트로
+  if (word.size() < 3) {return without;}
+  const auto * b = reinterpret_cast<const unsigned char *>(word.data() + word.size() - 3);
+  if ((b[0] & 0xF0) != 0xE0) {return without;}
+  const unsigned cp = ((b[0] & 0x0Fu) << 12) | ((b[1] & 0x3Fu) << 6) | (b[2] & 0x3Fu);
+  if (cp < 0xAC00 || cp > 0xD7A3) {return without;}
+  return (cp - 0xAC00) % 28 != 0 ? with_final : without;    // 28 = 받침 종류 수 (0 = 받침 없음)
+}
+
+std::string colorKo(const std::string & color)
+{
+  static const std::map<std::string, std::string> k{
+    {"red", "빨간색"}, {"blue", "파란색"}, {"green", "초록색"}, {"yellow", "노란색"}};
+  const auto it = k.find(color);
+  return it == k.end() ? std::string() : it->second;
+}
+
+std::string objectKo(const std::string & color, const std::string & shape)
+{
+  static const std::map<std::string, std::string> k{{"cube", "큐브"}, {"triangle", "삼각형"}, {"circle", "원"}};
+  const auto it = k.find(shape);
+  const std::string c = colorKo(color);
+  if (c.empty() && it == k.end()) {return "고르신 물체";}
+  const std::string s = it == k.end() ? std::string("큐브") : it->second;   // 작업 공간의 물체는 큐브
+  return c.empty() ? s : c + " " + s;
+}
+
+std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
+  bool ref_place)
+{
+  const std::string obj = objectKo(color, shape);
+  if (action == "pick") {
+    return ref_place ? "네, " + obj + josa(obj, "을", "를") + " 집어서 고르신 자리로 옮깁니다." :
+           "네, " + obj + josa(obj, "을", "를") + " 잡습니다.";
+  }
+  if (action == "place") {return ref_place ? "네, 고르신 자리에 내려놓겠습니다." : "네, 여기에 내려놓겠습니다.";}
+  if (action == "home") {return "네, 홈 자세로 돌아갑니다.";}
+  if (action == "stop") {return "네, 멈춥니다.";}
+  if (action == "resume") {return "네, 이어서 하겠습니다.";}
+  if (action == "power_on") {return "네, 가동합니다.";}
+  if (action == "disconnect") {return "네, 연결을 해제합니다.";}
+  return "잘 못 알아들었어요. 다시 말씀해 주세요.";
+}
+
 }  // namespace aris
+
