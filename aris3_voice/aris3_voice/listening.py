@@ -13,7 +13,9 @@ import numpy as np
 
 # 호출어: 「아리스(ARIS)」. Whisper 가 자주 다르게 적는 형태도 받는다 (공백·문장부호를 지운 뒤 비교).
 # 너무 넓히면 보통 말이 명령이 될 수 있으므로 앞부분이 「아리스」 와 소리가 아주 가까운 것만.
-WAKE_WORDS = ['아리스', '알리스', '아리수', '아리쓰', '애리스', '에리스', '아리스야', '아리스여', 'aris', 'arisu', 'alice']
+WAKE_WORDS = ['아리스', '알리스', '아리수', '아리쓰', '애리스', '에리스', '아리스야', '아리스여', 'aris', 'arisu', 'alice',
+              # 2026-11-11 실제로 Whisper 가 잘못 적은 형태 (「아래스 노란 큐브 잡아」 「RS 집으로 돌아가」)
+              '아래스', '아라스', '아레스', '아리츠', 'rs ']
 _PUNCT = re.compile(r'[\s,.!?~·…"\'「」()\-]+')
 
 
@@ -38,6 +40,27 @@ def strip_wake_word(text):
     return False, raw
 
 
+def find_wake_word_anywhere(text):
+    """(찾았나, 마지막 호출어 뒤 문장). 문장 중간의 호출어도 찾는다.
+
+    ARIS 가 말하는 중에 한 말은 ARIS 목소리와 한 마디로 섞여 적힌다
+    (예: 「네, 빨간색 큐브를 잡습니다 아냐, 아리스 멈춰」). 그때만 쓴다 - 평소에는 맨 앞만 본다(strip_wake_word).
+    """
+    if not text:
+        return False, ''
+    low = text.lower()
+    best = -1
+    word = ''
+    for w in WAKE_WORDS:
+        i = low.rfind(w)
+        if i > best or (i == best and len(w) > len(word)):
+            best, word = i, w
+    if best < 0:
+        return False, text.strip()
+    rest = _PUNCT.sub(' ', text[best + len(word):]).strip()
+    return bool(rest), rest
+
+
 class WakeGate:
     """호출어 문지기: 이 말을 명령으로 받을까.
 
@@ -51,9 +74,15 @@ class WakeGate:
         self.follow_s = follow_s
         self.until = float('-inf')            # 이 시각(monotonic)까지는 호출어 없는 다음 말도 명령 (처음엔 없음)
 
-    def feed(self, text, now):
-        """(명령인가, 해석할 문장, 상태) - 상태는 'command' | 'follow' (뒤 말 명령) | 'wait' (호출어만) | 'ignore'."""
+    def feed(self, text, now, echo=False):
+        """(명령인가, 해석할 문장, 상태) - 상태는 'command' | 'follow' (뒤 말 명령) | 'wait' (호출어만) | 'ignore'.
+        echo: ARIS 가 말하는 중에 녹음된 말 (ARIS 목소리와 섞였을 수 있어 문장 중간의 호출어도 찾는다)."""
         woke, rest = strip_wake_word(text)
+        if not woke and echo:
+            found, after = find_wake_word_anywhere(text)
+            if found:
+                self.until = float('-inf')
+                return True, after, 'command'
         if woke and rest:
             self.until = float('-inf')
             return True, rest, 'command'

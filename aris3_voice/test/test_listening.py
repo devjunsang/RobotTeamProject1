@@ -108,3 +108,19 @@ def test_wake_gate_pause_too_long():
 def test_wake_gate_ignores_without_call():
     """부르지 않은 말은 무시 (옆 사람과의 대화)."""
     assert WakeGate().feed('노란색 큐브 잡아', 0.0)[0] is False
+
+
+def test_misheard_wake_words_seen_in_logs():
+    """Whisper 가 실제로 잘못 적은 호출어도 받는다 (2026-11-11 기록)."""
+    assert strip_wake_word('아래스 노란 큐브 잡아') == (True, '노란 큐브 잡아')
+    assert strip_wake_word('RS 집으로 돌아가.') == (True, '집으로 돌아가')
+    assert not strip_wake_word('rsvp 보내')[0]                 # 「rs」 뒤에 띄어쓰기가 있어야
+
+
+def test_wake_word_mid_sentence_only_when_echo():
+    """ARIS 목소리와 섞인 말은 중간의 호출어도 찾는다. 평소에는 맨 앞만."""
+    from aris3_voice.listening import WakeGate
+    mixed = '네, 빨간색 큐브를 잡습니다 아냐, 아리스 멈춰'
+    assert WakeGate().feed(mixed, 0.0, echo=True) == (True, '멈춰', 'command')
+    assert WakeGate().feed(mixed, 0.0, echo=False)[2] == 'ignore'
+    assert WakeGate().feed('네, 가동합니다.', 0.0, echo=True)[2] == 'ignore'   # ARIS 자기 말만이면 무시

@@ -17,7 +17,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('python', default_value=os.path.expanduser('~/venvs/mark1_voice/bin/python'),
                               description='faster-whisper 가 설치된 Python'),
-        DeclareLaunchArgument('model', default_value='base', description='Whisper 모델 크기'),
+        DeclareLaunchArgument('model', default_value='large-v3-turbo',
+                              description='Whisper 모델 (GPU). GPU 가 안 되면 노드가 CPU base 로 바꿈'),
         DeclareLaunchArgument('audio_device', default_value='default', description='arecord -D 장치'),
         Node(package='aris3_voice', executable='voice_node', output='screen',
              prefix=LaunchConfiguration('python'),
