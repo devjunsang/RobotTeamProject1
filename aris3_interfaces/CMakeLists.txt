@@ -13,8 +13,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DetectedObjectArray.msg"
   "msg/TaskStatus.msg"
   "msg/VoiceCommand.msg"
+  "msg/HandGesture.msg"
+  "msg/GestureEvent.msg"
+  "msg/RealRobotState.msg"
   "srv/GripperCommand.srv"
+  "srv/RealCalibration.srv"
   "action/ExecuteTask.action"
+  "action/RealMotion.action"
+  "action/RealPickPlace.action"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 

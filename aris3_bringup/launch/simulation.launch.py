@@ -101,6 +101,11 @@ def setup_simulation(context, *args, **kwargs):
     # /aris3/sim/<물체>/attach 를 보내 손(link_6)에 고정하고, 열 때 detach 한다.
     # 기본(false)은 순수 마찰 파지. 두 결과는 따로 기록한다 (docs/ARIS3_개발방향_확정.md).
     grasp_assist = LaunchConfiguration("grasp_assist").perform(context) == "true"
+    # [카메라 옵션] camera:=false 이면 기본 Top View 카메라(탁자 위 2.0 m, 640x480)를 띄우지 않는다.
+    # 실물과 비슷한 카메라를 따로 다는 aris3_real_sim.launch.py 가 쓴다 (2026-11-10). 기본 true = 예전 그대로.
+    use_camera = LaunchConfiguration("camera").perform(context) == "true"
+    # [팔 제어기 옵션] arm_controller (MoveIt, 기본) 또는 dsr_position_controller (두산 가상 컨트롤러 따라가기)
+    arm_ctrl = LaunchConfiguration("arm_controller").perform(context)
     object_names = []
     if grasp_assist:
         layout = (Path(get_package_share_directory("aris3_bringup"))
@@ -188,6 +193,7 @@ def setup_simulation(context, *args, **kwargs):
     start_controllers = Node(
         package="aris3_bringup",
         executable="start_controllers.py",
+        arguments=["--arm", arm_ctrl],
         output="screen",
     )
 
@@ -326,9 +332,8 @@ def setup_simulation(context, *args, **kwargs):
             LogInfo(msg="[ARIS3] Robot spawned; checking hardware"),
             start_controllers,
             spawn_objects,
-            spawn_camera,
-            camera_bridge,
-        ] + ([assist_bridge] if object_names else [])
+        ] + ([spawn_camera, camera_bridge] if use_camera else []) \
+          + ([assist_bridge] if object_names else [])
 
     # 로봇 스폰 완료 여부를 감시한다.
     controller_start_handler = RegisterEventHandler(
@@ -380,8 +385,7 @@ def setup_simulation(context, *args, **kwargs):
         robot_state_publisher,
         clock_bridge,
         gazebo,
-        camera_mount_tf,
-        camera_optical_tf,
+    ] + ([camera_mount_tf, camera_optical_tf] if use_camera else []) + [
         object_markers,
         controller_start_handler,
 	aris3_rviz,  # RViz2 자동 실행
@@ -396,6 +400,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "grasp_assist", default_value="false",
             description="true: 물체 붙이기(DetachableJoint) 파지 보조, false: 순수 마찰 파지"),
+        DeclareLaunchArgument(
+            "arm_controller", default_value="arm_controller",
+            description="켤 팔 제어기: arm_controller (MoveIt) / dsr_position_controller (실물 비슷한 시뮬레이션)"),
+        DeclareLaunchArgument(
+            "camera", default_value="true",
+            description="true: 기본 Top View 카메라(탁자 위 2.0 m) 사용, false: 띄우지 않음 (실물 비슷한 카메라를 따로 달 때)"),
         OpaqueFunction(function=setup_simulation),
     ])
 

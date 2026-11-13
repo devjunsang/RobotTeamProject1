@@ -4,6 +4,7 @@
 //   ros2 run aris3_task_manager send_task blue C --dry-run
 //   ros2 run aris3_task_manager send_task green B --shape cube
 //   ros2 run aris3_task_manager send_task red A --action /aris3/test_execute_task   (시험용 서버)
+//   ros2 run aris3_task_manager send_task --id blue_cube --at 0.30,-0.20      (물체 이름 + 좌표, 손짓용)
 //
 // 진행 상황(feedback)을 한 줄씩 출력하고, Ctrl-C 를 누르면 작업 "취소"를 요청한 뒤 결과를 기다린다.
 // 종료 코드: 0 = 성공, 1 = 실패/취소, 2 = 서버 없음·거절.
@@ -41,17 +42,35 @@ int main(int argc, char ** argv)
       action_name = args[++i];
     } else if (args[i] == "--shape" && i + 1 < args.size()) {
       goal.target_shape = args[++i];
+    } else if (args[i] == "--id" && i + 1 < args.size()) {
+      goal.target_id = args[++i];
+    } else if (args[i] == "--at" && i + 1 < args.size()) {
+      double x = 0.0, y = 0.0;
+      if (std::sscanf(args[++i].c_str(), "%lf,%lf", &x, &y) != 2) {
+        std::fprintf(stderr, "--at 은 X,Y 형식 (예: --at 0.30,-0.20)\n");
+        rclcpp::shutdown();
+        return 2;
+      }
+      goal.use_place_position = true;
+      goal.place_position.x = x;
+      goal.place_position.y = y;
     } else {
       pos.push_back(args[i]);
     }
   }
-  if (pos.size() != 2) {
-    std::fprintf(stderr, "사용법: send_task <색: red|green|blue> <구역: A|B|C> [--dry-run] [--shape cube] [--action 이름]\n");
+  // 위치 인자: 색이 필요하면(--id 없음) 첫 번째, 구역이 필요하면(--at 없음) 그다음
+  const size_t need = (goal.target_id.empty() ? 1 : 0) + (goal.use_place_position ? 0 : 1);
+  if (pos.size() != need) {
+    std::fprintf(stderr,
+      "사용법: send_task <색> <구역: A|B|C> [--dry-run] [--shape cube] [--action 이름]\n"
+      "        send_task --id <물체 이름> --at X,Y      (물체 이름으로 고르고 좌표에 놓기, world [m])\n"
+      "        send_task <색> --at X,Y  |  send_task --id <물체 이름> <구역>\n");
     rclcpp::shutdown();
     return 2;
   }
-  goal.target_color = pos[0];
-  goal.destination = pos[1];
+  size_t k = 0;
+  if (goal.target_id.empty()) {goal.target_color = pos[k++];}
+  if (!goal.use_place_position) {goal.destination = pos[k++];}
 
   auto node = rclcpp::Node::make_shared("aris3_send_task");
   auto client = rclcpp_action::create_client<ExecuteTask>(node, action_name);
@@ -66,9 +85,15 @@ int main(int argc, char ** argv)
       std::printf("[%3.0f%%] %-8s %s\n", fb->progress * 100.0, fb->stage.c_str(), fb->detail.c_str());
       std::fflush(stdout);
     };
-  std::printf("요청: %s%s -> %s%s\n", goal.target_color.c_str(),
-    goal.target_shape.empty() ? "" : (" " + goal.target_shape).c_str(), goal.destination.c_str(),
-    goal.dry_run ? " (dry_run: 로봇은 움직이지 않음)" : "");
+  char where[64];
+  if (goal.use_place_position) {
+    std::snprintf(where, sizeof(where), "(%.3f, %.3f)", goal.place_position.x, goal.place_position.y);
+  } else {
+    std::snprintf(where, sizeof(where), "%s", goal.destination.c_str());
+  }
+  const std::string what = goal.target_id.empty() ?
+    goal.target_color + (goal.target_shape.empty() ? "" : " " + goal.target_shape) : goal.target_id;
+  std::printf("요청: %s -> %s%s\n", what.c_str(), where, goal.dry_run ? " (dry_run: 로봇은 움직이지 않음)" : "");
   auto goal_future = client->async_send_goal(goal, opts);
   if (rclcpp::spin_until_future_complete(node, goal_future, 10s) != rclcpp::FutureReturnCode::SUCCESS) {
     std::fprintf(stderr, "요청 전송 실패\n");

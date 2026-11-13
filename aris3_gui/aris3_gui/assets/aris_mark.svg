@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ARIS 엠블럼 (2026-11-10). 원작 디자인 - 특정 브랜드·캐릭터 마크를 본뜨지 않았다.
+  뜻: 글자 A 를 로봇 팔로 그렸다 - 왼쪽 다리 = 어깨에서 올라가는 팔, 꼭대기 원 = 관절, 오른쪽 다리 = 내려오는 팔과
+      그리퍼(두 손가락), 가로 막대 = 카메라 시야(시안 빛줄기). 바깥은 붉은 금속 방패에 금색 테두리, 안쪽은 시안 빛 링.
+  색: 핫로드 레드 #a3141c~#d02028, 골드 #d4a017~#ffe08a, 아크 시안 #5ff4ff (ARIS 테마와 같음)
+  쓰는 곳: aris3_gui 상단 중앙·창 아이콘, 앞으로 aris3_gui_cpp(ARIS).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 붉은 금속판: 위가 밝고 아래가 어두운 그라데이션 -->
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e3333a"/>
+      <stop offset="0.45" stop-color="#a3141c"/>
+      <stop offset="1" stop-color="#5a0a10"/>
+    </linearGradient>
+    <!-- 금색 테두리·팔 -->
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1b8"/>
+      <stop offset="0.35" stop-color="#ffd24a"/>
+      <stop offset="0.7" stop-color="#d4a017"/>
+      <stop offset="1" stop-color="#8a6510"/>
+    </linearGradient>
+    <linearGradient id="goldSide" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset="0.5" stop-color="#d4a017"/>
+      <stop offset="1" stop-color="#a87c12"/>
+    </linearGradient>
+    <!-- 안쪽 어두운 판 -->
+    <radialGradient id="core" cx="0.5" cy="0.45" r="0.6">
+      <stop offset="0" stop-color="#2a1416"/>
+      <stop offset="1" stop-color="#0c0607"/>
+    </radialGradient>
+    <!-- 시안 빛 번짐 -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- 바깥 방패 (모서리를 깎은 팔각형): 금색 테두리 -> 붉은 판 -->
+  <g filter="url(#shadow)">
+    <polygon points="156,16 356,16 496,156 496,356 356,496 156,496 16,356 16,156" fill="url(#gold)"/>
+    <polygon points="164,34 348,34 478,164 478,348 348,478 164,478 34,348 34,164" fill="url(#red)"/>
+    <!-- 판 이음새 (갑옷 판처럼) -->
+    <path d="M164,34 L198,92 M348,34 L314,92 M478,164 L420,198 M478,348 L420,314 M348,478 L314,420 M164,478 L198,420 M34,348 L92,314 M34,164 L92,198"
+          stroke="#3a060a" stroke-width="4" opacity="0.7"/>
+    <!-- 윗면 반사광 -->
+    <polygon points="170,44 342,44 400,102 112,102" fill="#ffffff" opacity="0.12"/>
+  </g>
+
+  <!-- 안쪽 원판과 금색 링 -->
+  <circle cx="256" cy="256" r="178" fill="url(#gold)"/>
+  <circle cx="256" cy="256" r="168" fill="url(#core)"/>
+
+  <!-- 시안 빛 링 (12 조각) -->
+  <g filter="url(#glow)" stroke="#5ff4ff" stroke-width="10" fill="none" stroke-linecap="round">
+    <circle cx="256" cy="256" r="150" stroke-dasharray="58 20.5" opacity="0.95"/>
+  </g>
+  <circle cx="256" cy="256" r="136" fill="none" stroke="#5ff4ff" stroke-width="1.5" opacity="0.35"/>
+
+  <!-- 글자 A = 로봇 팔 -->
+  <g filter="url(#shadow)">
+    <!-- 바닥 받침 (로봇 베이스) -->
+    <rect x="128" y="352" width="96" height="22" rx="6" fill="url(#gold)"/>
+    <!-- 왼쪽 다리: 베이스에서 관절로 올라가는 팔 -->
+    <polygon points="150,356 202,356 270,150 242,140" fill="url(#goldSide)"/>
+    <!-- 오른쪽 다리: 관절에서 내려오는 팔 -->
+    <polygon points="242,140 270,150 352,322 322,334" fill="url(#gold)"/>
+    <!-- 그리퍼 손목과 두 손가락 -->
+    <rect x="316" y="320" width="48" height="18" rx="4" transform="rotate(-25 340 329)" fill="#d4a017"/>
+    <path d="M330,346 l-4,34 l10,0 l8,-30 Z" fill="url(#gold)"/>
+    <path d="M362,332 l18,28 l-9,6 l-20,-26 Z" fill="url(#gold)"/>
+  </g>
+  <!-- 꼭대기 관절 -->
+  <circle cx="256" cy="146" r="26" fill="url(#gold)" stroke="#8a6510" stroke-width="3"/>
+  <circle cx="256" cy="146" r="10" fill="#5ff4ff" filter="url(#glow)"/>
+  <!-- 가로 막대 = 카메라 시야 빛줄기 -->
+  <g filter="url(#glow)">
+    <rect x="186" y="262" width="140" height="12" rx="6" fill="#5ff4ff"/>
+  </g>
+  <!-- 그리퍼 사이 목표점 -->
+  <circle cx="358" cy="392" r="7" fill="#5ff4ff" filter="url(#glow)"/>
+</svg>

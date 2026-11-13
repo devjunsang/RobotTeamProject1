@@ -1,0 +1,26 @@
+# 실물 E0509 단순 이동·그리퍼 (액션: /aris3/real/motion, GUI -> aris3_real_bridge)  2026-11-10
+# 취소(cancel) = 로봇 정지. 정지는 /aris3/real/stop 서비스로도 언제나 할 수 있다.
+# armed 가 아니거나 why_not_ready 가 있으면 목표를 거부한다 (GUI 검사와 별개로 브리지가 다시 막는다).
+# 이동 전 안전 검사(관절 한계·최저 높이·상태)와 끝난 뒤 도착 확인은 e0509_manual RobotLink 그대로.
+
+# ---------------- Goal
+uint8 JOG_JOINT=0                 # index = 관절 0..5, delta [deg]
+uint8 JOG_TCP=1                   # index = 축 0 X / 1 Y / 2 Z (베이스), delta [mm], 자세 유지
+uint8 HOME=2                      # 홈 자세 [0, 0, 90, 0, 90, 0] deg 로 관절 이동
+uint8 RECOVER_HOME=3              # 안전 정지 해제/서보 켜기 -> (수동 모드면) 자동 모드 -> 홈. 비상정지·복구 모드는 거부
+uint8 GRIPPER_OPEN=4
+uint8 GRIPPER_CLOSE=5
+uint8 STRETCH=6                   # 가동 자세 [0, 0, 0, 0, 0, 0] deg 로 관절 이동 - 팔을 위로 일자로 쭉 펴기 (2026-11-11 「아리스 가동」)
+                                  # 홈과 같은 검사. 이 자세에서는 손끝이 높아 바로 집기를 못 한다 (먼저 홈)
+
+uint8 kind
+uint8 index
+float32 delta
+float32 speed_percent             # 5 ~ 100, 최대 속도(관절 45 deg/s, 직선 100 mm/s)에 대한 비율
+---
+# ---------------- Result
+bool success                      # 끝까지 갔고 목표에 도착함 (정지·거부·도착 실패면 false)
+string message
+---
+# ---------------- Feedback
+string message                    # 진행 설명 ("서보 켜기 요청 성공 - 대기 상태를 기다림" ...)

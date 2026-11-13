@@ -9,6 +9,9 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python3-pyqt5</exec_depend>
+  <exec_depend>python3-pyqt5.qtsvg</exec_depend>   <!-- ARIS 로고 (SVG) -->
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <exec_depend>aris3_interfaces</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
@@ -21,6 +24,8 @@
   <exec_depend>tf2_ros</exec_depend>
   <!-- 시뮬레이션 모드 Connect 가 실행 -->
   <exec_depend>aris3_bringup</exec_depend>
+  <exec_depend>aris3_real_bridge</exec_depend>   <!-- 실물 모드: GUI 가 브리지 노드를 띄우고 부른다 -->
+  <exec_depend>std_srvs</exec_depend>            <!-- 브리지 서비스 (Trigger, SetBool) -->
   <!-- 실물 모드 (etc/e0509_manual): 접속·안전 검사 재사용. 없으면 실물 모드만 쓸 수 없다 -->
 
   <export>

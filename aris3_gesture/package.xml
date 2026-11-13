@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>aris3_gesture</name>
+  <version>0.1.0</version>
+  <description>ARIS3 손짓 인식 (위쪽 카메라 -> MediaPipe 손 관절 -> 검지 끝 픽셀 + 손짓 -> /aris3/gesture)</description>
+  <maintainer email="devjunsang@gmail.com">MasterJun</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>aris3_interfaces</exec_depend>
+  <!-- mediapipe 는 rosdep 키가 없어 가상환경에 따로 설치한다 (ROLE.txt 참고) -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -22,7 +22,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from dsr_msgs2.msg import RobotError
 from dsr_msgs2.srv import (DrlStart, DrlStop, GetCurrentPosx, GetDrlState, GetOutputRegisterInt,
-                           GetRobotState, MoveJoint, MoveLine, MoveStop, SetOutputRegisterInt)
+                           GetRobotMode, GetRobotState, MoveJoint, MoveLine, MoveStop, SetOutputRegisterInt,
+                           SetRobotControl, SetRobotMode)
 
 from e0509_manual import gripper_drl
 
@@ -33,10 +34,18 @@ JOINT_LIMITS = [(-360, 360), (-360, 360), (-155, 155), (-360, 360), (-360, 360),
 LIMIT_MARGIN = 5.0
 
 MAX_JOINT_STEP = 10.0     # deg per click
-MAX_JOINT_VEL = 30.0      # deg/s
+MAX_JOINT_VEL = 45.0      # deg/s (2026-11-09 30 -> 45)
 MAX_CART_STEP = 20.0      # mm per click
-MAX_CART_VEL = 50.0       # mm/s
+MAX_CART_VEL = 100.0      # mm/s (2026-11-09 50 -> 100)
+# 목표 좌표 이동(move_tcp_to, 카메라로 집기용 2026-11-09): 베이스 중심에서 XY 거리 범위와 한 번 이동 거리 제한
+REACH_MIN_MM = 150.0      # 베이스 바로 위(자기 몸)로 들어가지 않게
+REACH_MAX_MM = 750.0      # E0509 도달 거리 약 900 mm 보다 여유 있게
+MAX_MOVE_MM = 400.0       # 한 번에 이 거리보다 멀면 거부 (보정이 틀려 엉뚱한 곳으로 가는 것을 막음)
 STALE_SEC = 0.5           # joint states older than this -> no motion
+# 이동이 끝난 뒤 목표에 실제로 도착했는지 확인 (2026-11-09: 도달 불가 자세를 컨트롤러가 거부했는데
+# 상태가 대기로 돌아와 「완료」 로 읽히고 다음 단계가 비스듬히 움직인 일이 있었다)
+ARRIVE_TOL_MM = 5.0
+ARRIVE_TOL_DEG = 1.0
 
 STATE_NAMES = {
     0: 'INITIALIZING', 1: 'STANDBY', 2: 'MOVING', 3: 'SAFE_OFF', 4: 'TEACHING',
@@ -50,6 +59,19 @@ STATE_KO = {
     'SAFE_OFF2': '서보 꺼짐 2', 'NOT_READY': '준비 안 됨', 'UNKNOWN': '알 수 없음 (접속 안 됨)',
 }
 STANDBY, MOVING = 1, 2
+SAFE_OFF, SAFE_STOP, EMERGENCY_STOP, RECOVERY, SAFE_STOP2, SAFE_OFF2 = 3, 5, 6, 8, 9, 10
+# set_robot_control 값 (dsr_common2 DRFC.h ROBOT_CONTROL)
+CONTROL_RESET_SAFE_STOP = 2   # 안전 정지(SAFE_STOP) 해제
+CONTROL_SERVO_ON = 3          # 서보 꺼짐(SAFE_OFF) -> 서보 켜기
+HOME_DEG = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]   # ARIS3 홈(관찰 자세, Task Manager 와 같음): 손끝이 아래를 봄
+STRETCH_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # 가동 자세: 모든 관절 0° = 팔을 위로 일자로 편 자세 (2026-11-11)
+HOME_VEL = 30.0                                # deg/s
+# 로봇 모드 (dsr_msgs2 SetRobotMode). 접속하면 dsr_hardware2 가 AUTONOMOUS 로 둔다.
+#   MANUAL     : 팔 끝 콕핏의 직접 교시 버튼을 누른 채 손으로 팔을 끌 수 있다 (상태가 TEACHING 으로 바뀜).
+#                API 이동·DRL(그리퍼) 은 쓰지 않는다 -> why_not_ready 가 막는다.
+#   AUTONOMOUS : ROS/API 명령으로 움직이는 모드. 콕핏 직접 교시는 막힌다.
+ROBOT_MODE_MANUAL, ROBOT_MODE_AUTONOMOUS = 0, 1
+ROBOT_MODE_KO = {0: '수동 (손으로 움직이기)', 1: '자동', 2: '측정'}
 STOP_TYPE_QUICK = 1       # 0 would also cut servo power (STO); 1 = quick stop, servo stays on
 
 
@@ -67,9 +89,12 @@ class RobotLink(Node):
         self._js_count, self._js_t0 = 0, time.time()
         self.posx = None                # [x, y, z, rx, ry, rz] mm / deg, base frame
         self.robot_state = None         # int
+        self.robot_mode = None          # int (ROBOT_MODE_*), None = 모름
+        self.mode_switching = False     # 모드 바꾸는 중
         self.last_error = ''
         self.busy = False
         self._stop_requested = False
+        self.last_ok = False            # 마지막 이동·그리퍼 명령이 정상으로 끝났는가 (wait_motion 이 읽음)
         self.log_lines = []             # last 200 lines
         self.log_seq = 0                # total lines ever logged
 
@@ -79,6 +104,10 @@ class RobotLink(Node):
         self.cli_movel = self.create_client(MoveLine, f'{p}/motion/move_line')
         self.cli_stop = self.create_client(MoveStop, f'{p}/motion/move_stop')
         self.cli_state = self.create_client(GetRobotState, f'{p}/system/get_robot_state')
+        self.cli_get_mode = self.create_client(GetRobotMode, f'{p}/system/get_robot_mode')
+        self.cli_set_mode = self.create_client(SetRobotMode, f'{p}/system/set_robot_mode')
+        self.cli_control = self.create_client(SetRobotControl, f'{p}/system/set_robot_control')
+        self.recovering = False
         self.cli_posx = self.create_client(GetCurrentPosx, f'{p}/aux_control/get_current_posx')
         self.cli_drl_start = self.create_client(DrlStart, f'{p}/drl/drl_start')
         self.cli_drl_stop = self.create_client(DrlStop, f'{p}/drl/drl_stop')
@@ -97,6 +126,8 @@ class RobotLink(Node):
         self._posx_pending = 0.0
         self.create_timer(0.2, self._poll_state)
         self.create_timer(0.5, self._poll_posx)
+        self._mode_pending = 0.0
+        self.create_timer(1.0, self._poll_mode)
 
     # ------------------------------------------------------------------ incoming data
     def _on_js(self, m):
@@ -139,6 +170,165 @@ class RobotLink(Node):
                 self.robot_state = int(r.robot_state)
         fut.add_done_callback(done)
 
+    def _poll_mode(self):
+        if not self.cli_get_mode.service_is_ready():
+            self.robot_mode = None
+            return
+        if self.mode_switching or (self._mode_pending and time.time() - self._mode_pending < 2.0):
+            return
+        self._mode_pending = time.time()
+        fut = self.cli_get_mode.call_async(GetRobotMode.Request())
+
+        def done(f):
+            self._mode_pending = 0.0
+            r = f.result()
+            if r is not None and r.success and not self.mode_switching:
+                self.robot_mode = int(r.robot_mode)
+        fut.add_done_callback(done)
+
+    def set_hand_guide(self, on):
+        """on=True: 수동 모드 (콕핏 버튼으로 손으로 움직이기), False: 자동 모드로 돌아감. 작업 스레드에서 실행."""
+        label = '손으로 움직이기 켜기 (수동 모드)' if on else '손으로 움직이기 끄기 (자동 모드)'
+        if not self.cli_set_mode.service_is_ready():
+            self.log(f'{label} 거부: /{self.ns}/system/set_robot_mode 서비스 없음 (접속 필요)')
+            return False
+        reason = None
+        with self._lock:                # log() 도 이 잠금을 쓰므로 안에서 log 하지 않는다
+            if self.busy or self.mode_switching:
+                reason = '이동·그리퍼 명령 또는 모드 전환이 진행 중'
+            elif on and self.robot_state != STANDBY:
+                reason = f'로봇 상태가 대기가 아님 ({STATE_KO.get(self.state_name(), self.state_name())})'
+            else:
+                self.mode_switching = True
+        if reason:
+            self.log(f'{label} 거부: {reason}')
+            return False
+        threading.Thread(target=self._run_set_mode, args=(label, on), daemon=True).start()
+        return True
+
+    def _run_set_mode(self, label, on):
+        want = ROBOT_MODE_MANUAL if on else ROBOT_MODE_AUTONOMOUS
+        try:
+            req = SetRobotMode.Request()
+            req.robot_mode = want
+            r = self._call(self.cli_set_mode, req)
+            if r is None or not r.success:
+                self.log(f'{label}: 실패 (컨트롤러가 거부 - 펜던트가 제어권을 가졌거나 직접 교시 중일 수 있음)')
+                return
+            g = self._call(self.cli_get_mode, GetRobotMode.Request())      # 실제로 바뀌었는지 다시 읽는다
+            if g is not None and g.success:
+                self.robot_mode = int(g.robot_mode)
+            ok = self.robot_mode == want
+            self.log(f'{label}: ' + ('완료' if ok else f'요청은 성공했지만 지금 모드 {self.robot_mode}'))
+            if ok and on:
+                self.log('팔 끝 콕핏의 직접 교시 버튼을 누른 채 팔을 끌어 움직이세요. '
+                         '이 모드에서는 GUI 이동·그리퍼 명령이 막힙니다.')
+        finally:
+            self.mode_switching = False
+
+    # ------------------------------------------------------------------ 복구 · 홈
+    def move_home(self, vel_deg_s=HOME_VEL):
+        """홈 자세(HOME_DEG)로 관절 이동. jog 와 같은 검사(대기 상태·관절 신선도·한계)를 거친다."""
+        return self._move_joint_pose(HOME_DEG, '홈 자세', '홈 이동', vel_deg_s)
+
+    def move_stretch(self, vel_deg_s=HOME_VEL):
+        """가동 자세(STRETCH_DEG, 모든 관절 0°)로 관절 이동 - 팔을 위로 일자로 편다. 홈과 같은 검사."""
+        return self._move_joint_pose(STRETCH_DEG, '가동 자세 (일자로 펴기)', '가동 자세', vel_deg_s)
+
+    def _move_joint_pose(self, pose, title, short, vel_deg_s):
+        """정해진 관절 자세 pose [deg] 로 관절 이동 (대기 상태·관절 신선도·관절 한계 검사, 끝나면 도착 확인)."""
+        vel = max(1.0, min(MAX_JOINT_VEL, float(vel_deg_s)))
+        reason = self.why_not_ready()
+        if reason:
+            self.log(f'{short} 거부: {reason}')
+            return False
+        for i, t in enumerate(pose):
+            lo, hi = JOINT_LIMITS[i]
+            if not lo + LIMIT_MARGIN <= t <= hi - LIMIT_MARGIN:
+                self.log(f'{short} 거부: J{i + 1} 목표 {t:.0f}° 가 범위 밖')
+                return False
+        req = MoveJoint.Request()
+        req.pos = [float(x) for x in pose]
+        req.vel, req.acc = vel, 2.0 * vel
+        req.mode, req.sync_type = 0, 1
+        return self._start_motion(f'{title} {pose} ({vel:.0f}°/s)', self.cli_movej, req,
+                                  target_joints=list(pose))
+
+    def recover_and_home(self, vel_deg_s=HOME_VEL):
+        """안전 정지·서보 꺼짐을 해제하고(필요하면 자동 모드로) 홈으로 간다. 작업 스레드에서 실행.
+
+        비상정지·복구 모드는 사람이 로봇 쪽에서 풀어야 하므로 할 일만 알려 준다.
+        """
+        if not self.cli_control.service_is_ready():
+            self.log('복구 거부: 로봇에 연결되어 있지 않음. 비상정지였다면 버튼 해제 -> 펜던트/DART 에서 리셋 '
+                     '-> 「접속 끊기」 -> 10 초 뒤 「접속」')
+            return False
+        with self._lock:
+            if self.recovering or self.busy or self.mode_switching:
+                busy = True
+            else:
+                busy, self.recovering = False, True
+        if busy:
+            self.log('복구 거부: 다른 명령이 진행 중')
+            return False
+        threading.Thread(target=self._run_recover, args=(vel_deg_s,), daemon=True).start()
+        return True
+
+    def _wait_state(self, want, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.robot_state == want:
+                return True
+            time.sleep(0.2)
+        return False
+
+    def _run_recover(self, vel):
+        try:
+            st = self.robot_state
+            name = STATE_KO.get(self.state_name(), self.state_name())
+            self.log(f'복구 시작: 지금 상태 {name}')
+            if st == EMERGENCY_STOP:
+                self.log('복구 중단: 비상정지 상태 - 비상정지 버튼을 돌려 해제한 뒤 다시 누르세요 (소프트웨어로 풀 수 없음)')
+                return
+            if st == RECOVERY:
+                self.log('복구 중단: 복구 모드 - 펜던트/DART 에서 한계를 벗어난 관절을 안쪽으로 옮긴 뒤 복구 모드를 끝내세요')
+                return
+            ctrl = {SAFE_STOP: CONTROL_RESET_SAFE_STOP, SAFE_STOP2: CONTROL_RESET_SAFE_STOP,
+                    SAFE_OFF: CONTROL_SERVO_ON, SAFE_OFF2: CONTROL_SERVO_ON}.get(st)
+            if ctrl is not None:
+                req = SetRobotControl.Request()
+                req.robot_control = ctrl
+                r = self._call(self.cli_control, req)
+                what = '안전 정지 해제' if ctrl == CONTROL_RESET_SAFE_STOP else '서보 켜기'
+                if r is None or not r.success:
+                    self.log(f'복구: {what} 실패 (컨트롤러가 거부 - 한계를 벗어난 관절이 있으면 펜던트의 복구 모드 필요)')
+                    return
+                self.log(f'복구: {what} 요청 성공 - 대기 상태를 기다림')
+            elif st != STANDBY:
+                self.log(f'복구 중단: 이 상태({name})는 자동으로 풀지 않음')
+                return
+            if not self._wait_state(STANDBY, 10.0):
+                self.log(f'복구 실패: 10 초 안에 대기 상태가 되지 않음 (지금 {STATE_KO.get(self.state_name(), self.state_name())})')
+                return
+            if self.robot_mode == ROBOT_MODE_MANUAL:     # 손으로 움직이기 중이었으면 자동 모드로
+                req = SetRobotMode.Request()
+                req.robot_mode = ROBOT_MODE_AUTONOMOUS
+                r = self._call(self.cli_set_mode, req)
+                g = self._call(self.cli_get_mode, GetRobotMode.Request())
+                if g is not None and g.success:
+                    self.robot_mode = int(g.robot_mode)
+                if r is None or not r.success or self.robot_mode != ROBOT_MODE_AUTONOMOUS:
+                    self.log('복구 실패: 자동 모드로 바꾸지 못함')
+                    return
+                self.log('복구: 자동 모드로 바꿈')
+            self.log('복구 완료 (대기 상태) -> 홈으로 이동')
+            time.sleep(0.5)                                  # 관절 상태·좌표가 다시 들어오게
+        finally:
+            self.recovering = False
+        if self.move_home(vel):
+            if self.wait_motion():
+                self.log('홈 도착')
+
     def _poll_posx(self):
         if not self.cli_posx.service_is_ready():
             return
@@ -174,6 +364,7 @@ class RobotLink(Node):
     def on_disconnected(self):
         with self._lock:
             self.robot_state = None
+            self.robot_mode = None
             self.posx = None
             self.last_error = ''
         self.gripper_ok = None
@@ -192,6 +383,12 @@ class RobotLink(Node):
             return f'/{self.ns} 로봇에 연결되어 있지 않음'
         if not self.joints_fresh():
             return '관절 각도가 들어오지 않음'
+        if self.mode_switching:
+            return '로봇 모드 바꾸는 중'
+        if self.recovering:
+            return '복구 중'
+        if self.robot_mode == ROBOT_MODE_MANUAL:
+            return '손으로 움직이기(수동 모드) 켜짐 - 체크를 끄면 자동 모드로 돌아감'
         if self.robot_state != STANDBY:
             return f'로봇 상태가 대기가 아님 ({STATE_KO.get(self.state_name(), self.state_name())})'
         if self.busy:
@@ -236,7 +433,8 @@ class RobotLink(Node):
         req.pos = [float(x) for x in target]
         req.vel, req.acc = vel, 2.0 * vel
         req.mode, req.sync_type = 0, 1      # absolute, async (so stop works mid-motion)
-        return self._start_motion(f'J{idx + 1} {delta:+.1f}° ({vel:.0f}°/s)', self.cli_movej, req)
+        return self._start_motion(f'J{idx + 1} {delta:+.1f}° ({vel:.0f}°/s)', self.cli_movej, req,
+                                  target_joints=list(req.pos))
 
     def jog_cart(self, axis, delta_mm, vel_mm_s):
         """Move the TCP along base X/Y/Z (axis 0..2) by delta_mm, orientation unchanged."""
@@ -262,17 +460,88 @@ class RobotLink(Node):
         req.vel = [vel, 30.0]
         req.acc = [2.0 * vel, 60.0]
         req.ref, req.mode, req.sync_type = 0, 0, 1   # base frame, absolute, async
-        return self._start_motion(f'{name} {delta:+.1f} mm ({vel:.0f} mm/s)', self.cli_movel, req)
+        return self._start_motion(f'{name} {delta:+.1f} mm ({vel:.0f} mm/s)', self.cli_movel, req,
+                                  target_xyz=tuple(req.pos[:3]))
 
-    def _start_motion(self, label, client, req):
+    def move_tcp_to(self, x_mm, y_mm, z_mm, vel_mm_s, label=None):
+        """TCP 를 베이스 좌표 (x, y, z) mm 로 직선 이동. 자세(회전)는 지금 그대로 유지한다.
+
+        jog 와 같은 검사(대기 상태·관절 신선도·최저 높이)에 더해 도달 범위와 한 번 이동 거리를 제한한다.
+        끝날 때까지 기다리려면 wait_motion() 을 부른다.
+        """
+        label = label or f'이동 ({x_mm:.0f}, {y_mm:.0f}, {z_mm:.0f}) mm'
+        vel = max(1.0, min(MAX_CART_VEL, float(vel_mm_s)))
+        reason = self.why_not_ready()
+        if reason:
+            self.log(f'{label} 거부: {reason}')
+            return False
+        cur = self._fresh_posx()
+        if cur is None:
+            self.log(f'{label} 거부: 현재 좌표를 읽지 못함')
+            return False
+        if z_mm < self.z_min_mm:
+            self.log(f'{label} 거부: 목표 높이 Z={z_mm:.1f} mm가 최저 높이 {self.z_min_mm:.0f} mm보다 낮음')
+            return False
+        reach = math.hypot(x_mm, y_mm)
+        if not REACH_MIN_MM <= reach <= REACH_MAX_MM:
+            self.log(f'{label} 거부: 베이스에서 {reach:.0f} mm (허용 {REACH_MIN_MM:.0f}~{REACH_MAX_MM:.0f} mm)')
+            return False
+        dist = math.dist(cur[:3], (x_mm, y_mm, z_mm))
+        if dist > MAX_MOVE_MM:
+            self.log(f'{label} 거부: 이동 거리 {dist:.0f} mm 가 한 번 이동 한계 {MAX_MOVE_MM:.0f} mm 보다 큼')
+            return False
+        req = MoveLine.Request()
+        req.pos = [float(x_mm), float(y_mm), float(z_mm)] + [float(v) for v in cur[3:6]]
+        req.vel = [vel, 30.0]
+        req.acc = [2.0 * vel, 60.0]
+        req.ref, req.mode, req.sync_type = 0, 0, 1   # base frame, absolute, async
+        return self._start_motion(f'{label} ({vel:.0f} mm/s, {dist:.0f} mm)', self.cli_movel, req,
+                                  target_xyz=(float(x_mm), float(y_mm), float(z_mm)))
+
+    def wait_motion(self, timeout=90.0):
+        """이동·그리퍼 명령이 끝날 때까지 기다린다 (작업 스레드에서만). 성공적으로 끝났으면 True."""
+        t0 = time.time()
+        time.sleep(0.1)
+        while self.busy:
+            if time.time() - t0 > timeout:
+                return False
+            time.sleep(0.05)
+        return self.last_ok and not self._stop_requested
+
+    def _start_motion(self, label, client, req, target_xyz=None, target_joints=None):
         with self._lock:
             if self.busy:
                 return False
             self.busy = True
-        threading.Thread(target=self._run_motion, args=(label, client, req), daemon=True).start()
+        threading.Thread(target=self._run_motion, args=(label, client, req, target_xyz, target_joints),
+                         daemon=True).start()
         return True
 
-    def _run_motion(self, label, client, req):
+    def _check_arrival(self, label, target_xyz, target_joints):
+        """끝난 뒤 실제 위치가 목표와 맞는가. 맞지 않으면 실패로 기록하고 False."""
+        if target_xyz is not None:
+            p = self._fresh_posx()
+            if p is None:
+                self.log(f'{label}: 도착 확인 실패 (현재 좌표를 읽지 못함) -> 실패로 처리')
+                return False
+            d = math.dist(p[:3], target_xyz)
+            if d > ARRIVE_TOL_MM:
+                self.log(f'{label}: 목표에 도착하지 못함 (남은 거리 {d:.0f} mm - 도달 불가 자세였거나 컨트롤러가 '
+                         f'이동을 거부) -> 실패로 처리')
+                return False
+        if target_joints is not None:
+            j = self.joints_deg
+            if j is None:
+                self.log(f'{label}: 도착 확인 실패 (관절 각도 없음) -> 실패로 처리')
+                return False
+            err = max(abs(a - b) for a, b in zip(j, target_joints))
+            if err > ARRIVE_TOL_DEG:
+                self.log(f'{label}: 목표 관절 각도에 도착하지 못함 (최대 차이 {err:.1f}°) -> 실패로 처리')
+                return False
+        return True
+
+    def _run_motion(self, label, client, req, target_xyz=None, target_joints=None):
+        self.last_ok = False
         try:
             r = self._call(client, req, timeout=5.0)
             if r is None or not r.success:
@@ -292,15 +561,27 @@ class RobotLink(Node):
             else:
                 self.log(f'{label}: 60초 안에 끝나지 않음')
                 return
-            how = '정지 명령으로 멈춤' if self._stop_requested else '완료'
-            self.log(f'{label}: {how} (상태 {STATE_KO.get(self.state_name(), self.state_name())})')
+            if self._stop_requested:
+                self.log(f'{label}: 정지 명령으로 멈춤 (상태 {STATE_KO.get(self.state_name(), self.state_name())})')
+                return
+            if not self._check_arrival(label, target_xyz, target_joints):
+                return
+            self.last_ok = True
+            self.log(f'{label}: 완료 (상태 {STATE_KO.get(self.state_name(), self.state_name())})')
         finally:
             self.busy = False
 
     def _joints_still(self, window):
-        a = self.joints_deg
+        """window 초 동안 관절이 멈춰 있었나. 그 사이 새 관절 메시지가 실제로 왔을 때만 멈춤으로 본다.
+
+        2026-11-11: 예전에는 새 메시지가 왔는지 보지 않아, CPU 가 바빠 관절 메시지 처리가 잠깐 밀리면 같은 (오래된) 값끼리
+        비교해 「멈췄다」 로 착각하고 움직이는 도중에 끝났다고 판단했다 (도착 확인이 실패로 잡음 - 가상 컨트롤러 시험에서 발견).
+        """
+        a, t_a = self.joints_deg, self.joints_stamp
         time.sleep(window)
-        b = self.joints_deg
+        b, t_b = self.joints_deg, self.joints_stamp
+        if t_b <= t_a or not self.joints_fresh():
+            return False                   # 그 사이 새 관절 값이 없음 -> 멈췄는지 알 수 없음
         return a is not None and b is not None and max(abs(x - y) for x, y in zip(a, b)) < 0.01
 
     def stop(self):
@@ -344,11 +625,24 @@ class RobotLink(Node):
         return True
 
     def _run_gripper_retry(self, label, cmd, pos, cur, vel, retries):
+        self.last_ok = False
+        self._stop_requested = False    # 이전 정지가 이번 명령의 결과로 잘못 읽히지 않게
         try:
+            if cmd == 'move':
+                retries = max(retries, 1)   # 재접속 직후 첫 명령은 토크가 안 켜져 안 움직이는 일이 있음 -> 한 번 더
             for attempt in range(retries + 1):
                 self._grip_token = self._grip_token % 250 + 1
                 code = gripper_drl.build(cmd, self._grip_token, pos=pos, cur=cur, vel=vel)
-                if self._run_gripper(label, code, self._grip_token) or attempt == retries:
+                ok = self._run_gripper(label, code, self._grip_token)
+                if ok and cmd == 'move' and not (self.gripper or {}).get('torque'):
+                    # 「완료」 로 끝났어도 토크가 꺼져 있으면 손가락은 움직이지 않았다 (2026-11-09 실측: 위치 2, 토크 꺼짐)
+                    self.log(f'{label}: 토크가 켜지지 않아 손가락이 움직이지 않음 -> 실패로 처리')
+                    self.gripper_ok = False
+                    ok = False
+                if ok:
+                    self.last_ok = True
+                    return
+                if attempt == retries:
                     return
                 self.log(f'{label}: 2초 뒤 한 번 더 시도')
                 time.sleep(2.0)

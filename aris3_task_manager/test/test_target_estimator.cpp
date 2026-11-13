@@ -15,7 +15,7 @@ Observation obs(const std::string & color, double x, double y, double conf = 0.9
 
 TEST(TargetEstimator, AveragesStableDetections)
 {
-  TargetEstimator est({"red", "", 0.5});
+  TargetEstimator est({"red", "", 0.5, ""});
   for (int i = 0; i < 5; ++i) {
     est.addFrame({obs("red", 0.450 + 0.001 * (i % 2), -0.150), obs("blue", 0.45, 0.15)});
   }
@@ -28,7 +28,7 @@ TEST(TargetEstimator, AveragesStableDetections)
 
 TEST(TargetEstimator, NotFoundWhenTooFewFrames)
 {
-  TargetEstimator est({"green", "", 0.5});
+  TargetEstimator est({"green", "", 0.5, ""});
   est.addFrame({obs("green", 0.45, 0.0)});
   est.addFrame({obs("red", 0.45, -0.15)});
   const auto e = est.estimate(5, 0.005);
@@ -39,21 +39,21 @@ TEST(TargetEstimator, NotFoundWhenTooFewFrames)
 
 TEST(TargetEstimator, UnstableWhenPositionJumps)
 {
-  TargetEstimator est({"red", "", 0.5});
+  TargetEstimator est({"red", "", 0.5, ""});
   for (int i = 0; i < 5; ++i) {est.addFrame({obs("red", 0.45 + (i == 4 ? 0.03 : 0.0), -0.15)});}
   EXPECT_EQ(est.estimate(5, 0.005).status, EstimateStatus::UNSTABLE);
 }
 
 TEST(TargetEstimator, AmbiguousWhenTwoSeparateMatches)
 {
-  TargetEstimator est({"red", "", 0.5});
+  TargetEstimator est({"red", "", 0.5, ""});
   est.addFrame({obs("red", 0.45, -0.15), obs("red", 0.30, 0.10)});
   EXPECT_EQ(est.estimate(1, 0.005).status, EstimateStatus::AMBIGUOUS);
 }
 
 TEST(TargetEstimator, SplitBlobOfOneObjectIsMerged)
 {
-  TargetEstimator est({"red", "", 0.5});
+  TargetEstimator est({"red", "", 0.5, ""});
   est.addFrame({obs("red", 0.450, -0.150), obs("red", 0.455, -0.150)});  // 5 mm 떨어진 두 조각
   const auto e = est.estimate(1, 0.005);
   ASSERT_EQ(e.status, EstimateStatus::OK);
@@ -62,13 +62,13 @@ TEST(TargetEstimator, SplitBlobOfOneObjectIsMerged)
 
 TEST(TargetEstimator, FiltersByShapeAndConfidence)
 {
-  TargetEstimator est({"red", "triangle", 0.5});
+  TargetEstimator est({"red", "triangle", 0.5, ""});
   est.addFrame({obs("red", 0.45, -0.15, 0.9, "cube")});
   EXPECT_EQ(est.framesMatched(), 0);
-  TargetEstimator low({"red", "", 0.5});
+  TargetEstimator low({"red", "", 0.5, ""});
   low.addFrame({obs("red", 0.45, -0.15, 0.2)});
   EXPECT_EQ(low.framesMatched(), 0);
-  TargetEstimator any({"RED", "", 0.5});   // 대소문자 무시
+  TargetEstimator any({"RED", "", 0.5, ""});   // 대소문자 무시
   any.addFrame({obs("red", 0.45, -0.15)});
   EXPECT_EQ(any.framesMatched(), 1);
 }
@@ -83,4 +83,27 @@ TEST(OccupantsNear, FindsOtherObjectInZoneButNotTheTarget)
   EXPECT_EQ(occ[0].color, "blue");
   // 목표가 이미 그 구역에 있으면 목표 자신은 점유로 치지 않는다
   EXPECT_TRUE(occupantsNear({obs("green", 0.60, 0.35)}, zone, 0.06, Vec3{0.60, 0.35, 0.77}).empty());
+}
+
+TEST(TargetEstimator, SelectsByIdIgnoringColor)
+{
+  // 손짓으로 고른 물체: 같은 색이 둘 있어도 이름(id)으로 하나만 고른다 -> 모호하지 않음
+  auto named = [](const std::string & id, const std::string & color, double x, double y) {
+      Observation o = obs(color, x, y);
+      o.id = id;
+      return o;
+    };
+  TargetQuery q;
+  q.id = "red_cube_2";
+  TargetEstimator est(q);
+  for (int i = 0; i < 5; ++i) {
+    est.addFrame({named("red_cube_1", "red", 0.0, 0.45), named("red_cube_2", "red", 0.45, 0.0)});
+  }
+  const Estimate e = est.estimate(5, 0.005);
+  ASSERT_EQ(e.status, EstimateStatus::OK);
+  EXPECT_NEAR(e.mean.x, 0.45, 1e-9);
+  EXPECT_EQ(e.id, "red_cube_2");
+  TargetEstimator missing(TargetQuery{"", "", 0.5, "blue_cube"});
+  missing.addFrame({named("red_cube_1", "red", 0.0, 0.45)});
+  EXPECT_EQ(missing.framesMatched(), 0);
 }

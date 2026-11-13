@@ -18,13 +18,21 @@
   시작하므로, 모든 물체가 'detached' 로 확인될 때까지 detach 를 보낸다.
 
 서비스 콜백 안에서 joint_states 를 기다리므로 MultiThreadedExecutor + ReentrantCallbackGroup 을 쓴다.
+100 Hz joint_states 는 별도 노드 + SingleThreadedExecutor 스레드에서 받는다 (main 참고).
+
+2026-11-11 간헐 실패: 실행기 부하로 joint_states 가 늦게 처리되면 마지막 값(열림 0.000, 속도 0)을 보고
+「막혀 멈춤 = 잡음」 으로 판단 -> 근처 큐브를 손에 붙이고 손가락을 열림에 세웠다. 실물 브리지는 위치가 너무 작아
+「빈손」 으로 보고 멈춰, 큐브가 손에 붙은 채 남아 다음 시험까지 망쳤다. 그래서
+  (1) 멈춤은 명령 뒤에 새로 받은 메시지로만 판단 (SettleTracker)
+  (2) 거의 닫히지 않고 멈추면(min_hold_position 아래) 잡음이 아님 - 실물 브리지 GRIP_HOLD_MIN 과 같은 기준
+  (3) joint_states 를 별도 실행기로 분리
 """
 import threading
 import time
 
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 import math
@@ -37,6 +45,38 @@ from aris3_interfaces.msg import DetectedObjectArray
 from aris3_interfaces.srv import GripperCommand
 
 
+class SettleTracker:
+    """손가락이 멈췄는지를 「명령 뒤에 새로 받은」 관절 메시지로만 판단한다 (ROS 없이 시험 가능).
+
+    stamp 는 메시지를 받은 시각(monotonic). 명령 전에 받은 값이나 max_age 보다 오래된 값은 쓰지 않는다 -
+    늦게 오는 메시지 대신 옛 값을 보면 움직이지 않은 것처럼 보이기 때문.
+    window 초 동안 받은 메시지들의 위치가 tol 안에 머물러 있으면 멈춘 것.
+    """
+
+    def __init__(self, start, tol, window=0.3, max_age=0.2):
+        self.start, self.tol, self.window, self.max_age = start, tol, window, max_age
+        self.ref = None                       # (기준 위치, 그 위치를 처음 받은 시각)
+
+    def update(self, pos, stamp, now):
+        """최신 관절 값 하나를 넣는다. 멈췄으면 True."""
+        if pos is None or stamp is None or stamp <= self.start or now - stamp > self.max_age:
+            self.ref = None                   # 새 메시지가 없다 -> 판단 보류 (처음부터 다시)
+            return False
+        if self.ref is None or abs(pos - self.ref[0]) > self.tol:
+            self.ref = (pos, stamp)           # 움직이는 중 -> 기준을 옮긴다
+            return False
+        return stamp - self.ref[1] >= self.window
+
+
+def close_result(pos, min_hold, empty_th):
+    """닫은 뒤 멈춘 위치 -> (잡았나, 설명). 실물 브리지(real_pick._check_hold)와 같은 세 구간."""
+    if pos < min_hold:
+        return False, '거의 닫히지 않고 멈춤 (잡지 못함)'
+    if pos < empty_th:
+        return True, '물체에 막혀 멈춤 (잡음)'
+    return False, '끝까지 닫힘 (빈손)'
+
+
 class GzGripperBridge(Node):
     def __init__(self):
         super().__init__('aris3_gz_gripper_bridge')
@@ -47,6 +87,8 @@ class GzGripperBridge(Node):
         self.declare_parameter('closed_position', 1.1)
         # 이 값보다 덜 닫힌 채 멈추면 물체에 막힌 것 = 잡음 (빈손이면 closed_position 근처까지 닫힘)
         self.declare_parameter('empty_threshold', 1.0)
+        # 이 값보다 덜 닫힌 채 멈추면 닫히지 않은 것 = 잡음 아님 (0.15 rad ~ 실물 위치 100 = GRIP_HOLD_MIN, 큐브 50 mm 는 약 0.7)
+        self.declare_parameter('min_hold_position', 0.15)
         self.declare_parameter('settle_velocity', 0.02)   # rad/s, 이보다 느리면 멈춘 것
         self.declare_parameter('timeout_s', 4.0)
         self.declare_parameter('assist_objects', [''])     # 비어 있으면 보조 끔 (순수 마찰 파지)
@@ -59,6 +101,7 @@ class GzGripperBridge(Node):
         self.open_pos = float(self.get_parameter('open_position').value)
         self.closed_pos = float(self.get_parameter('closed_position').value)
         self.empty_th = float(self.get_parameter('empty_threshold').value)
+        self.min_hold = float(self.get_parameter('min_hold_position').value)
         self.settle_vel = float(self.get_parameter('settle_velocity').value)
         self.timeout = float(self.get_parameter('timeout_s').value)
 
@@ -66,9 +109,10 @@ class GzGripperBridge(Node):
         self.lock = threading.Lock()
         self.pos = None
         self.vel = 0.0
+        self.stamp = None            # 마지막 관절 메시지를 받은 시각 (monotonic)
         self.closed_cmd = False      # 마지막 명령이 CLOSE 였는가
         self.pub = self.create_publisher(Float64MultiArray, f'{ns}/gripper_position_controller/commands', 10)
-        self.create_subscription(JointState, f'{ns}/joint_states', self._on_js, 50, callback_group=cb)
+        self.js_topic = f'{ns}/joint_states'   # 구독은 main 의 별도 노드에서 (100 Hz 가 서비스 응답을 막지 않게)
         # ---- 파지 보조
         self.assist = [n for n in self.get_parameter('assist_objects').value if n]
         self.tcp_offset = float(self.get_parameter('tcp_offset_m').value)
@@ -90,6 +134,7 @@ class GzGripperBridge(Node):
             self.create_subscription(DetectedObjectArray, '/aris3/detected_objects', self._on_objects, 10,
                                      callback_group=cb)
             self.release_count = 0
+            self.release_sent = {}          # 물체별: 받는 쪽이 있을 때 보낸 횟수
             self.release_timer = self.create_timer(0.5, self._release_at_startup, callback_group=cb)
             self.get_logger().warn(f'파지 보조 켜짐 (DetachableJoint): {self.assist}')
 
@@ -104,19 +149,38 @@ class GzGripperBridge(Node):
         with self.lock:
             self.pos = msg.position[i]
             self.vel = msg.velocity[i] if i < len(msg.velocity) else 0.0
+            self.stamp = time.monotonic()
 
     def _on_objects(self, msg):
         self.objects = {o.id: o.pose.pose.position for o in msg.objects if o.id}
 
     def _release_at_startup(self):
-        # DetachableJoint 는 상태가 바뀔 때만 state 를 보내므로, 이미 분리된 물체는 확인 메시지가 오지 않는다.
-        # 그래서 확인을 기다리지 않고 정해진 횟수(3 s)만 detach 를 보낸다.
+        """시작할 때 모든 물체를 손에서 분리한다 (DetachableJoint 는 시작하면 물체를 손에 붙여 둔다).
+
+        2026-11-10 고침: 예전에는 노드가 뜬 뒤 3 초 동안만 보냈는데, Gazebo 쪽 브리지(ros_gz_bridge)가 아직
+        구독하지 않으면 메시지가 모두 사라져 물체가 손에 붙은 채 남았다 -> 팔이 탁자 위 큐브에 묶여 움직이지 못하고
+        첫 이동이 CONTROL_FAILED (path tolerance) 로 실패했다 (ARIS 시험에서 발견).
+        이제는 물체마다 (1) 받는 쪽이 생긴 뒤에만 보내고 (2) 'detached' 상태가 오면 그 물체는 멈추며
+        (3) 받는 쪽이 있는 상태로 6 번(3 초) 보냈으면 끝낸다 (이미 분리된 물체는 상태 메시지가 오지 않으므로).
+        60 초가 지나도 받는 쪽이 없으면 경고를 남기고 멈춘다.
+        """
         self.release_count += 1
+        pending = []
         for n in self.assist:
-            self.detach_pub[n].publish(Empty())
-        if self.release_count >= 6:
+            if self.joint_state.get(n) == 'detached' or self.release_sent.get(n, 0) >= 6:
+                continue
+            pub = self.detach_pub[n]
+            if pub.get_subscription_count() > 0:      # Gazebo 쪽 브리지가 듣고 있을 때만 센다
+                pub.publish(Empty())
+                self.release_sent[n] = self.release_sent.get(n, 0) + 1
+            pending.append(n)
+        if not pending:
             self.release_timer.cancel()
             self.get_logger().info('파지 보조: 시작 시 물체 분리 명령 완료')
+        elif self.release_count >= 120:                # 0.5 s x 120 = 60 s
+            self.release_timer.cancel()
+            self.get_logger().warn(f'파지 보조: 시작 시 분리를 확인하지 못함 {pending} - 물체가 손에 붙어 있으면 '
+                                   '팔이 움직이지 못한다 (attach/detach 브리지 확인)')
 
     def _tcp_world(self):
         t = self.tf.lookup_transform(self.world, self.flange, Time())
@@ -166,25 +230,31 @@ class GzGripperBridge(Node):
         return False
 
     def _state(self):
+        """(위치, 속도) - 마지막으로 받은 값."""
         with self.lock:
             return self.pos, self.vel
 
+    def _fresh(self):
+        """(위치, 받은 시각)."""
+        with self.lock:
+            return self.pos, self.stamp
+
     def _move_and_settle(self, target):
-        """목표를 보내고 손가락이 멈출 때까지 기다린다. (최종 위치, 멈췄는가)"""
-        self.pub.publish(Float64MultiArray(data=[target]))
+        """목표를 보내고 손가락이 멈출 때까지 기다린다. (최종 위치, 멈췄는가)
+
+        멈춤은 명령 뒤에 새로 받은 관절 메시지로만 판단한다 (SettleTracker). 0.3 초 창 안의 평균 속도가
+        settle_velocity 보다 느리면 멈춘 것.
+        """
         start = time.monotonic()
+        self.pub.publish(Float64MultiArray(data=[target]))
+        tracker = SettleTracker(start, tol=self.settle_vel * 0.3)
         time.sleep(0.3)                       # 움직이기 시작할 시간
-        still_since = None
         while time.monotonic() - start < self.timeout:
-            pos, vel = self._state()
-            if pos is not None and abs(vel) < self.settle_vel:
-                still_since = still_since or time.monotonic()
-                if time.monotonic() - still_since > 0.3:
-                    return pos, True
-            else:
-                still_since = None
-            time.sleep(0.05)
-        return self._state()[0], False
+            pos, stamp = self._fresh()
+            if tracker.update(pos, stamp, time.monotonic()):
+                return pos, True
+            time.sleep(0.02)
+        return self._fresh()[0], False
 
     def _on_cmd(self, req, res):
         if self._state()[0] is None:
@@ -193,7 +263,7 @@ class GzGripperBridge(Node):
         if req.command == GripperCommand.Request.STATUS:
             pos, _ = self._state()
             res.success = True
-            res.holding = self.closed_cmd and pos < self.empty_th
+            res.holding = self.closed_cmd and self.min_hold <= pos < self.empty_th
             res.object_id = self.held
             res.message = f'{self.joint}={pos:.3f} ({"닫힘" if self.closed_cmd else "열림"})'
             return res
@@ -209,14 +279,16 @@ class GzGripperBridge(Node):
         pos, settled = self._move_and_settle(self.closed_pos if closing else self.open_pos)
         self.closed_cmd = closing
         res.success = settled
-        res.holding = closing and pos < self.empty_th
+        res.holding, how = close_result(pos, self.min_hold, self.empty_th) if closing else (False, '')
         what = 'CLOSE' if closing else 'OPEN'
         if not settled:
             res.message = f'{what}: {self.timeout:.0f}s 안에 손가락이 멈추지 않음 ({self.joint}={pos:.3f})'
         elif closing:
-            res.message = (f'CLOSE: {self.joint}={pos:.3f} -> '
-                           f'{"물체에 막혀 멈춤 (잡음)" if res.holding else "끝까지 닫힘 (빈손)"}')
+            res.message = f'CLOSE: {self.joint}={pos:.3f} -> {how}'
+        else:
+            res.message = f'OPEN: {self.joint}={pos:.3f}'
         # 막혀서 멈추는 중이면(settled 가 아니어도) 잡은 것으로 보고 보조 고정을 시도
+        # (2026-11-09: 예전에는 아래 else 가 CLOSE 결과까지 'OPEN: ...' 으로 덮어써서 원인을 가렸다)
         if closing and res.holding and self.assist:
             # 손가락을 막힌 자리에 멈춘다. 계속 닫으려 하면 손에 고정된 물체를 밀어
             # 손가락 메시 안으로 박아 넣는다 (2026-11-08: 고정 해제 뒤에도 물체가 손가락에 끼어 있었음).
@@ -226,8 +298,6 @@ class GzGripperBridge(Node):
             res.message += f' | {note}'
             if not res.object_id:
                 res.holding = False
-        else:
-            res.message = f'OPEN: {self.joint}={pos:.3f}'
         self.get_logger().info(f'{res.message} success={res.success} holding={res.holding}')
         return res
 
@@ -235,12 +305,21 @@ class GzGripperBridge(Node):
 def main():
     rclpy.init()
     node = GzGripperBridge()
+    # 100 Hz joint_states 는 별도 노드·단일 스레드 실행기에서 받는다. 한 MultiThreadedExecutor 에 같이 두면
+    # 메시지마다 대기 집합을 다시 만들며 GIL 을 다퉈 처리가 수 초 밀릴 수 있다 (aris3_real_bridge 와 같은 문제)
+    js_node = rclpy.create_node('aris3_gz_gripper_bridge_joint')
+    js_node.create_subscription(JointState, node.js_topic, node._on_js, 50)
+    js_ex = SingleThreadedExecutor()
+    js_ex.add_node(js_node)
+    threading.Thread(target=js_ex.spin, daemon=True).start()
     ex = MultiThreadedExecutor(num_threads=4)
     ex.add_node(node)
     try:
         ex.spin()
     except KeyboardInterrupt:
         pass
+    js_ex.shutdown()
+    js_node.destroy_node()
     node.destroy_node()
     if rclpy.ok():
         rclpy.shutdown()

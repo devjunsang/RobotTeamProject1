@@ -18,6 +18,54 @@ from aris3_gui.ros_io import ARM_JOINTS
 from aris3_interfaces.srv import GripperCommand
 
 SIM_LOG = '/tmp/aris3_gui_sim.log'
+VOICE_LOG = '/tmp/aris3_gui_voice.log'
+BRIDGE_LOG = '/tmp/aris3_gui_real_bridge.log'
+GESTURE_LOG = '/tmp/aris3_gui_gesture.log'
+
+
+class LaunchProc:
+    """실물 모드 보조 노드(음성·손짓)를 ros2 launch 로 실행·종료한다 (시뮬레이션은 sim_full 이 음성을 띄움).
+
+    이 노드들은 로봇을 움직이지 않는다 (인식 결과만 토픽으로 보냄).
+    이미 다른 곳에서 같은 노드가 돌고 있으면 새로 띄우지 않는다 (명령이 두 번 나오지 않게).
+    """
+
+    def __init__(self, name, package, launch_file, pattern, log_path, log, args=()):
+        """pattern: 이미 실행 중인지 pgrep -f 로 찾을 문자열, args: launch 인자 ['host:=...', ...]."""
+        self.name, self.package, self.launch_file = name, package, launch_file
+        self.pattern, self.log_path, self.log = pattern, log_path, log
+        self.args = list(args)
+        self.proc = None
+
+    def external_running(self):
+        """이 GUI 가 띄우지 않은 같은 노드가 이미 돌고 있는가."""
+        return subprocess.run(['pgrep', '-f', self.pattern], capture_output=True).returncode == 0
+
+    def start(self, note=''):
+        """아직 없으면 ros2 launch 로 띄운다 (자식 프로세스 그룹을 따로 둬 GUI 를 꺼도 한 번에 정리)."""
+        if self.proc is not None and self.proc.poll() is None:
+            return
+        if self.external_running():
+            self.log('INFO', f'{self.name} 노드가 이미 실행 중 - 그것을 사용')
+            return
+        out = open(self.log_path, 'w')
+        self.proc = subprocess.Popen(['ros2', 'launch', self.package, self.launch_file] + self.args,
+                                     stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        self.log('INFO', f'{self.name} 노드 시작{note} (기록 {self.log_path})')
+
+    def stop(self, timeout=5.0):
+        """이 GUI 가 띄운 것만 끈다 (SIGINT -> 시간 안에 안 꺼지면 SIGKILL). 외부에서 띄운 노드는 그대로."""
+        if self.proc is None or self.proc.poll() is not None:
+            self.proc = None
+            return
+        pgid = os.getpgid(self.proc.pid)
+        os.killpg(pgid, signal.SIGINT)
+        end = time.time() + timeout
+        while time.time() < end and self.proc.poll() is None:
+            time.sleep(0.1)
+        if self.proc.poll() is None:
+            os.killpg(pgid, signal.SIGKILL)
+        self.proc = None
 
 
 class SimStack:
@@ -107,6 +155,11 @@ class SimBackend:
         j = self.node.snapshot()['joints']
         return None if 'gripper_rh_r1' not in j else max(0.0, min(1.0, j['gripper_rh_r1'] / 1.1))
 
+    def gripper_status(self):
+        """시스템 상태 패널용 (ok, 문구, 대기색). 시뮬레이션은 /aris3/gripper/command 서비스로 판단."""
+        ok = self.node.status_flags()['gripper']
+        return ok, ('준비' if ok else '서비스 없음'), False
+
     def why_not_ready(self):
         s = self.node.status_flags()
         if not s['joint_states']:
@@ -135,85 +188,189 @@ class SimBackend:
     def stop(self):
         self.node.stop_all()
 
+    def hand_guide_state(self):
+        return None                     # 시뮬레이션에는 없음
+
+    def set_hand_guide(self, on):
+        return False
+
+    def set_armed(self, on):
+        """시뮬레이션은 GUI 의 「조작 허용」 만 쓴다 (브리지 없음)."""
+        return True
+
+    def can_recover(self):
+        """시뮬레이션에는 복구 후 홈이 없다."""
+        return False
+
     def shutdown(self):
         self.stack.stop()
 
 
 class RealBackend:
-    """실물 E0509: etc/e0509_manual 의 접속(BringupManager)·안전 검사(RobotLink)를 그대로 쓴다.
+    """실물 E0509: aris3_real_bridge 노드를 통해 움직인다 (2026-11-10, 예전에는 GUI 안에서 RobotLink 를 직접 씀).
 
-    실물 Task Manager(두산 백엔드) 연동은 아직 검증되지 않았으므로 GUI 는 실물 모드에서 작업 실행을 막는다.
+    GUI 를 켤 때 브리지가 없으면 함께 띄운다 (음성·손짓과 같은 방식). 로봇 안전 검사·접속은 브리지 안의
+    e0509_manual RobotLink 가 그대로 하고, GUI 는 확인창·조작 허용만 맡는다.
+    실물 Task Manager(두산 백엔드) 연동은 아직 검증되지 않았으므로 GUI 는 실물 모드에서 자동 작업 실행을 막는다.
     """
     mode = 'real'
     title = '실물 E0509'
 
-    def __init__(self, node, ns='e0509_real', host='110.120.1.66', port=12345, z_min=50.0, rviz=False):
-        from e0509_manual.bringup import BringupManager, ConnectionController   # 실물 모드에서만 필요
-        from e0509_manual.robot_link import start_link
-        self.node = node
-        self.link, self.link_ex = start_link(ns, z_min)
-        self.mgr = BringupManager(ns, host, port, rviz=rviz, log=self.link.log)
-        self.conn = ConnectionController(self.link, self.mgr)
-        self._log_seen = 0
+    def __init__(self, node, ns='e0509_real', host='110.120.1.66', port=12345, z_min=50.0, rviz=False,
+                 voice=True, gesture=True, virtual=False):
+        """브리지 클라이언트를 만들고 브리지·음성·손짓 노드를 (없으면) 띄운다. rviz 는 예전 호환용 (쓰지 않음).
 
+        virtual=True: 실물 비슷한 시뮬레이션 - 브리지를 두산 가상 컨트롤러(mode:=virtual)와 시뮬레이션 그리퍼
+        서비스(gripper:=service)로 띄운다. 보정 파일도 따로 쓴다 (실물 보정을 덮어쓰지 않게).
+        """
+        if virtual:
+            self.title = '가상 E0509 (실물 경로 시뮬레이션)'      # 화면 제목에 「가상」 을 분명히
+            host = '127.0.0.1'
+        from aris3_gui.real_client import RealBridgeClient
+        from aris3_interfaces.action import RealMotion
+        from aris3_interfaces.msg import RealRobotState
+        self.node = node
+        self.M, self.S = RealMotion.Goal, RealRobotState      # 메시지 상수 짧게
+        self.bridge = RealBridgeClient(node)
+        self.bridge_proc = LaunchProc('실물 브리지', 'aris3_real_bridge', 'real_bridge.launch.py',
+                                      # 실제 노드 프로세스만: 「python3 .../lib/aris3_real_bridge/real_bridge ...」
+                                      # (느슨한 패턴은 그 문자열이 들어간 다른 명령줄에도 걸려 브리지를 띄우지 않았다)
+                                      r'^\S*python[0-9.]* \S*/lib/aris3_real_bridge/real_bridge( |$)', BRIDGE_LOG, node.log,
+                                      args=[f'ns:={ns}', f'host:={host}', f'port:={port}', f'z_min_mm:={z_min}']
+                                      + (['mode:=virtual', 'gripper:=service'] if virtual else []))
+        self.bridge_proc.start(f' - {"가상 컨트롤러" if virtual else host}, 최저 높이 {z_min:.0f} mm')
+        # 로봇과 상관없이 GUI 를 켤 때 띄운다 (모델 로딩이 오래 걸림)
+        self.voice = LaunchProc('음성', 'aris3_voice', 'voice.launch.py', 'aris3_voice/voice_node',
+                                VOICE_LOG, node.log)
+        self.gesture = LaunchProc('손짓(MediaPipe)', 'aris3_gesture', 'gesture.launch.py',
+                                  'aris3_gesture/gesture_node', GESTURE_LOG, node.log)
+        if voice:
+            self.voice.start(' - Whisper 로딩 10~30 초')
+        if gesture:
+            self.gesture.start()
+
+    def _st(self):
+        """브리지의 마지막 상태 (1 초 안에 받은 것) 또는 None."""
+        return self.bridge.state()
+
+    # ---- 연결
     def connect(self):
-        self.conn.connect_async()
+        """로봇 접속 (서보 켜짐, 팔은 움직이지 않음). 진행은 상태 토픽으로."""
+        self.bridge.trigger('connect', '로봇 접속')
 
     def disconnect(self):
-        self.conn.disconnect_async()
+        """로봇 접속 끊기 (서보 꺼짐)."""
+        self.bridge.trigger('disconnect', '접속 끊기')
 
     def connected(self):
-        return self.link.joints_fresh()
+        """관절 상태가 들어오는가."""
+        st = self._st()
+        return bool(st and st.connected)
 
     def describe(self):
-        return self.mgr.describe() or ('접속됨' if self.connected() else '접속 안 됨')
+        """연결 설명 (시스템 상태 패널)."""
+        st = self._st()
+        if st is None:
+            return '실물 브리지 없음 (aris3_real_bridge 시작 중이거나 꺼짐)'
+        return st.connection_text
 
+    # ---- 상태
     def joints_deg(self):
-        return self.link.joints_deg
+        """관절 6개 [deg] 또는 None."""
+        st = self._st()
+        return list(st.joints_deg) if (st and st.joints_valid) else None
 
     def tcp_text(self):
-        p = self.link.posx
-        if p is None:
+        """((x, y, z) [m], (rx, ry, rz) [rad]) 또는 None - 화면은 시뮬레이션과 같은 단위로 그린다."""
+        st = self._st()
+        if not (st and st.tcp_valid):
             return None
-        return ((p[0] / 1000, p[1] / 1000, p[2] / 1000),
-                tuple(math.radians(v) for v in p[3:6]))
+        p = list(st.tcp)
+        return ((p[0] / 1000, p[1] / 1000, p[2] / 1000), tuple(math.radians(v) for v in p[3:6]))
 
     def gripper_position(self):
-        d = self.link.gripper
-        return None if not d else d['position'] / 740.0
+        """0 = 열림 ~ 1 = 다 닫힘 (그리퍼 위치 0~740)."""
+        st = self._st()
+        return st.gripper_position / 740.0 if (st and st.gripper_valid) else None
+
+    def gripper_status(self):
+        """시스템 상태 패널용 (ok, 문구, 대기색)."""
+        st = self._st()
+        if st is None or not st.gripper_service_ready:
+            return False, 'DRL 서비스 없음 (접속 필요)', False
+        if st.gripper_running:
+            return True, '동작 중', False
+        if st.gripper_result == self.S.GRIPPER_RESULT_FAILED:
+            return False, '마지막 명령 실패', False
+        if st.gripper_result == self.S.GRIPPER_RESULT_UNKNOWN:
+            return False, '응답 확인 전 (열기/닫기로 확인)', True
+        return True, '준비', False
 
     def why_not_ready(self):
-        if self.conn.busy():
-            return self.mgr.describe()
-        return self.link.why_not_ready()
+        """지금 움직일 수 없는 이유 또는 None (조작 허용은 GUI 가 따로 본다)."""
+        st = self._st()
+        if st is None:
+            return '실물 브리지 노드 없음'
+        if self.bridge.motion_pending:
+            return '이전 동작의 결과를 기다리는 중'
+        return st.why_not_ready or None
 
+    def robot_state_text(self):
+        """두산 상태 한국어 ("대기", "안전 정지" ...)."""
+        st = self._st()
+        return st.robot_state_text if st else '모름 (브리지 없음)'
+
+    def can_recover(self):
+        """「복구 후 홈」 을 누를 수 있는가."""
+        st = self._st()
+        return bool(st and st.can_recover)
+
+    # ---- 명령 (모두 브리지 액션: 결과는 로그로)
     def jog_joint(self, i, deg, vel_pct):
-        self.link.jog_joint(i, deg, max(5.0, 30.0 * vel_pct / 100.0))     # 실물 최대 30 deg/s
+        """관절 i 를 deg 만큼 (속도 비율 %, 최대 45 deg/s)."""
+        self.bridge.motion(self.M.JOG_JOINT, f'J{i + 1} {deg:+g}°', index=i, delta=deg, speed_percent=vel_pct)
 
     def jog_tcp(self, axis, mm, vel_pct):
-        self.link.jog_cart(axis, mm, max(10.0, 50.0 * vel_pct / 100.0))   # 실물 최대 50 mm/s
+        """TCP 를 베이스 X/Y/Z 로 mm 만큼 (최대 100 mm/s)."""
+        self.bridge.motion(self.M.JOG_TCP, f'TCP {"XYZ"[axis]} {mm:+g} mm', index=axis, delta=mm,
+                           speed_percent=vel_pct)
 
     def home(self, vel_pct=30):
-        self.node.log('WARN', '실물 모드의 홈 이동은 아직 지원하지 않음 (수동 조작 사용)')
+        """홈 자세 [0, 0, 90, 0, 90, 0] 로."""
+        self.bridge.motion(self.M.HOME, '홈 이동', speed_percent=vel_pct)
+
+    def recover_and_home(self, vel_pct=30):
+        """안전 정지 해제/서보 켜기 -> 자동 모드 -> 홈."""
+        return self.bridge.motion(self.M.RECOVER_HOME, '복구 후 홈', speed_percent=vel_pct)
 
     def gripper(self, close):
-        self.link.gripper_command('move', pos=740 if close else 0, cur=300, vel=1500,
-                                  label='그리퍼 닫기' if close else '그리퍼 열기')
+        """그리퍼 닫기(잡기)/열기."""
+        self.bridge.motion(self.M.GRIPPER_CLOSE if close else self.M.GRIPPER_OPEN,
+                           '그리퍼 닫기' if close else '그리퍼 열기')
 
     def stop(self):
-        self.link.stop()
+        """정지: 브리지(로봇·집기 순서) + Task Manager·MoveIt. 언제나 보낸다."""
+        self.bridge.stop()
         self.node.stop_all()
 
-    def pump_logs(self):
-        """RobotLink 기록을 GUI 로그로 옮긴다."""
-        seq, lines = self.link.log_seq, list(self.link.log_lines)
-        new = min(seq - self._log_seen, len(lines))
-        for line in lines[-new:] if new > 0 else []:
-            self.node.log('INFO', f'[실물] {line}')
-        self._log_seen = seq
+    def hand_guide_state(self):
+        """(수동 모드인가 True/False/None 모름, 바꾸는 중인가, 모드 이름)."""
+        st = self._st()
+        if st is None or st.robot_mode == self.S.ROBOT_MODE_UNKNOWN:
+            return None, bool(st and st.mode_switching), '모름'
+        manual = st.robot_mode == self.S.ROBOT_MODE_MANUAL
+        return manual, st.mode_switching, '수동 (손으로 움직이기)' if manual else '자동'
+
+    def set_hand_guide(self, on):
+        """손으로 움직이기 켜기/끄기 (브리지가 조작 허용도 잠금)."""
+        return self.bridge.set_hand_guide(on)
+
+    def set_armed(self, on):
+        """브리지 쪽 조작 허용을 GUI 체크와 맞춘다."""
+        return self.bridge.set_armed(on)
 
     def shutdown(self):
-        if self.mgr.own_running():
-            self.mgr.stop()
-        self.link_ex.shutdown()
-        self.link.destroy_node()
+        """GUI 종료: 이 GUI 가 띄운 노드만 끈다 (브리지를 끄면 브리지가 시작한 로봇 접속도 끊김 - 예전과 같음)."""
+        self.voice.stop()
+        self.gesture.stop()
+        self.bridge_proc.stop(timeout=25.0)

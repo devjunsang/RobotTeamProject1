@@ -24,9 +24,10 @@ struct Observation
 
 struct TargetQuery
 {
-  std::string color;          // 필수
+  std::string color;          // id 가 비어 있으면 필수
   std::string shape;          // "" = 상관없음
   double min_confidence{0.5};
+  std::string id;             // 있으면 이 이름의 물체만 (색·모양은 보지 않음). 손짓으로 고른 물체
 };
 
 enum class EstimateStatus { OK, NOT_FOUND, UNSTABLE, AMBIGUOUS };

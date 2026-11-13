@@ -17,7 +17,8 @@
 source ~/ros2_ws/install/setup.bash
 ros2 run aris3_gui control_station              # 시뮬레이션 모드: 「Connect」 = Gazebo -> MoveIt -> Task Manager -> 음성
 ros2 run aris3_gui control_station --no-assist  # 순수 마찰 파지 (물체 붙이기 보조 끔)
-ros2 run aris3_gui control_station --mode real  # 실물 E0509 (etc/e0509_manual 의 접속·안전 코드 사용)
+ros2 run aris3_gui control_station --mode real  # 실물 E0509 (aris3_real_bridge 를 함께 띄워 그 노드로 움직임)
+ros2 run aris3_gui control_station --mode real --sim  # 실물 경로를 두산 가상 컨트롤러로 (먼저 aris3_real_sim.launch.py)
 ```
 
 이미 다른 터미널에서 시뮬레이션을 띄웠다면 GUI 는 그것을 그대로 쓴다 (「외부에서 실행한 시뮬레이션」).
@@ -53,7 +54,18 @@ python3 -m pip --python ~/venvs/mark1_voice/bin/python install faster-whisper "n
 |---|---|
 | `ros_io.py` | ROS 노드 (별도 스레드). 토픽 구독, ExecuteTask·MoveIt·그리퍼 호출. 화면은 100 ms 마다 `snapshot()` 을 읽는다 |
 | `backends.py` | 모드별 연결: `SimBackend`(aris3_sim_full.launch.py 실행, MoveIt 수동 조작) / `RealBackend`(e0509_manual) |
-| `main_window.py` | 화면 배치와 버튼 동작 |
+| `main_window.py` | 화면 배치, 안전 공통 동작(확인창·조작 허용·정지), 100 ms 주기 갱신 순서 |
+| `panels/` | 패널별 mixin (화면 구성·버튼 동작·주기 갱신). `ControlStation` 이 모두 상속한다 |
+| ├ `header.py` | 상단 버튼 줄 (Connect · Disconnect · Home · Start Task · Stop · 정지) |
+| ├ `status.py` | 왼쪽: 시스템·로봇·그리퍼 상태, 카메라 정보 |
+| ├ `camera.py` | 카메라 Top View, 작업 공간 2D |
+| ├ `task_queue.py` | 작업 큐·단계 진행, 카메라 화면 선택(이거/저기)으로 작업 만들기 |
+| ├ `voice.py` | 음성 명령 (누르고 말하기 / 문장 입력 -> 해석 -> 실행) |
+| ├ `real_pick_panel.py` | 실물: 카메라 보정·집기, 손짓(MediaPipe), 실물 음성 명령 |
+| ├ `jog.py` | 수동 조작, 조작 허용, 손으로 움직이기, 복구 후 홈 |
+| └ `log.py` | 로그 |
+| `real_client.py` | 실물: `aris3_real_bridge` 서비스·액션 호출과 상태 보기(`StateCalibration`, `StatePicker`). 보정·집기 순서·로봇 안전 검사는 브리지 노드가 실행 |
+| `assets/aris_mark.svg` | ARIS 엠블럼 (A = 로봇 팔, 시안 = 카메라 시야). 상단 줄 가운데·창 아이콘. C++ GUI 도 `share/aris3_gui/assets` 에서 쓸 수 있음 |
 | `widgets.py` | 카메라 영상 + 검출 표시(TF + 핀홀 투영), 작업 공간 2D 지도 |
 
 ## 알려진 한계 (2026-11-08)

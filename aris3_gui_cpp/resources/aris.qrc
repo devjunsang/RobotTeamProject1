@@ -1,0 +1,7 @@
+<!-- ARIS 리소스: 엠블럼 PNG (원본 aris3_gui/aris3_gui/assets/aris_mark.svg 를 그려 만든 것) -->
+<RCC>
+  <qresource prefix="/aris">
+    <file>aris_mark_64.png</file>
+    <file>aris_mark_256.png</file>
+  </qresource>
+</RCC>

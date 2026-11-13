@@ -144,7 +144,23 @@ def activate(name):
             proc.wait()
 
 
+def arm_controller_name():
+    """켤 팔 제어기: --arm <이름> (기본 arm_controller = MoveIt 용).
+
+    실물 비슷한 시뮬레이션(aris3_real_sim.launch.py)은 dsr_position_controller 를 켠다
+    (두산 가상 컨트롤러의 관절 각도를 그대로 따라감). 둘은 같은 관절을 쓰므로 하나만 켠다.
+    """
+    args = sys.argv[1:]
+    if '--arm' in args and args.index('--arm') + 1 < len(args):
+        name = args[args.index('--arm') + 1]
+        if name in ('arm_controller', 'dsr_position_controller'):
+            return name
+        raise RuntimeError(f'모르는 팔 제어기: {name}')
+    return 'arm_controller'
+
+
 def main():
+    arm = arm_controller_name()
     if not CONFIG.is_file():
         raise RuntimeError(f"Missing configuration: {CONFIG}")
 
@@ -159,7 +175,7 @@ def main():
     load_inactive("gripper_position_controller", CONFIG)
 
     activate("joint_state_broadcaster")
-    activate("arm_controller")
+    activate(arm)
     activate("gripper_position_controller")
 
     result = require([
@@ -169,7 +185,7 @@ def main():
 
     expected = (
         "joint_state_broadcaster",
-        "arm_controller",
+        arm,
         "gripper_position_controller",
     )
 

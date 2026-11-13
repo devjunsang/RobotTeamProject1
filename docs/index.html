@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ARIS3 문서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: #fbf8f6; --surface: #ffffff; --fg: #231a1a; --muted: #6b5e5c; --line: #e4d9d4;
+  --red: #a3141c; --gold: #9a6f05; --cyan: #0b7c88; --code-bg: #f3ece8; --quote: #fbefe9;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px;
+  padding-block: 32px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+aside.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px);
+  overflow-y: auto; font-size: 13.5px; line-height: 1.5; border-right: 1px solid var(--line); padding-right: 16px; }
+aside.toc .home { display: inline-block; margin-bottom: 12px; color: var(--muted); text-decoration: none; font-size: 13px; }
+aside.toc .toc-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; margin: 6px 0 8px; }
+aside.toc ul { list-style: none; padding: 0; margin: 0; }
+aside.toc li { margin: 5px 0; }
+aside.toc ul ul { padding-left: 12px; border-left: 1px solid var(--line); margin-left: 2px; }
+aside.toc a { color: var(--fg); text-decoration: none; }
+aside.toc a:hover { color: var(--cyan); }
+main { min-width: 0; }
+header.doc { border-bottom: 3px solid var(--red); margin-bottom: 8px; padding-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+main h1 { font-size: clamp(26px, 4.5vw, 36px); line-height: 1.25; margin: 4px 0 6px; text-wrap: balance; }
+main h2 { font-size: 23px; margin: 48px 0 12px; padding-left: 12px; border-left: 5px solid var(--red); text-wrap: balance; }
+main h3 { font-size: 18px; margin: 30px 0 8px; }
+main h4 { font-size: 16px; margin: 22px 0 6px; color: var(--muted); }
+main p, main li { max-width: 72ch; }
+main a { color: var(--cyan); }
+main a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+main ul, main ol { padding-left: 1.4em; }
+main li { margin: 3px 0; }
+main hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: 13px; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote); border-left: 4px solid var(--gold); border-radius: 0 6px 6px 0; }
+blockquote p { margin: 4px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12.5px; letter-spacing: .04em; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+.doclist { display: grid; gap: 12px; margin-top: 18px; }
+.doclist a { display: block; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  text-decoration: none; color: var(--fg); }
+.doclist a:hover { border-color: var(--red); }
+.doclist b { display: block; font-size: 17px; }
+.doclist span { color: var(--muted); font-size: 14px; }
+.foot { margin-top: 48px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  aside.toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="layout"><aside class="toc"><div class="toc-title">ARIS3</div></aside><main><header class="doc"><div class="eyebrow">ARIS3 · docs</div><h1>ARIS3 문서</h1></header><p>프로젝트 문서 목록입니다. 처음이면 「ARIS3 학습 가이드」 부터 보세요.</p><div class="doclist"><a href="ARIS3_학습가이드.html"><b>ARIS3 학습 가이드</b><span>전체 통신 흐름도·실물 집기 순서·안전장치·버그 사례·직접 해 볼 과제</span></a>
+<a href="ARIS3_TaskManager_학습가이드.html"><b>ARIS3 Task Manager — 만들면서 배운 것과 공부할 것</b><span>읽는 순서 권장: 1장(큰 그림) → 2장(직접 실행) → 3장은 궁금한 절부터 → 4장(코드 읽기) → 5장(과제).
+각 절 끝의 해 볼 것은 실제로 명령을 쳐 보는 것이 목적이다. 읽기만 하면 남지 않는다.</span></a>
+<a href="ARIS3_개발방향_확정.html"><b>ARIS3 개발 방향 확정 (2026-11-08)</b><span>기준 문서: etc/e0509_manual/ARIS3_전체개발_마스터플랜.html, ARIS3_상세설계_V0.2_전체아키텍처.html
+이 문서는 두 문서의 목표를 유지하면서 현재 저장소 상태를 반영해 확정한 결정과 </span></a>
+<a href="ARIS3_실행_테스트_가이드.html"><b>ARIS3 실행·테스트 가이드 (시뮬레이션, 2026-11-09)</b><span>GUI 하나(ARIS3 Control Station)로 Gazebo 시뮬레이션을 띄우고 Pick &amp;amp; Place 를 시험하는 순서.
+최종 목표(손짓으로 물체를 가리켜 옮기기)의 1단계인 「물체 이름 + 좌표에 </span></a>
+<a href="ARIS_명령어_사용법.html"><b>ARIS 명령어 사용법</b><span>ARIS(aris3_gui_cpp)에서 지금 쓸 수 있는 명령을 한곳에 모았습니다. 음성, 손짓, 화면 클릭, 키보드, 실행 옵션 순서입니다. (2026-11-13 기준)</span></a>
+<a href="E0509_실기연동_학습가이드.html"><b>E0509 실제 로봇·그리퍼 연동 — 들어간 기술과 공부할 것</b><span>이 문서의 &quot;확인됨&quot;은 2026-11-07에 실제 로봇(컨트롤러 110.120.1.66)에서 측정한 결과다. 장비 설정이 바뀌면 다시 확인해야 한다.</span></a></div></main></div>
+</body>
+</html>

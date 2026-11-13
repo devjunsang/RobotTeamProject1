@@ -1,0 +1,34 @@
+ARIS3 / aris3_gesture
+=====================
+
+[폴더 역할]
+손짓 인식 (사람이 손으로 물체와 놓을 자리를 가리킴)
+
+[개발 기술]
+Python / MediaPipe Hand Landmarker (Tasks API) / OpenCV / rclpy
+
+[구현할 내용]
+위쪽 카메라 영상에서 손 관절 21점 -> 검지 끝 픽셀 + 손짓(point / fist / open) -> /aris3/gesture.
+로봇은 움직이지 않는다. GUI 가 「가리키고 멈추기(선택) -> 확정 손짓 -> 확인창」 으로 실행한다.
+
+[완료 기준]
+손으로 큐브를 가리켜 고르고, 주먹으로 집고, 빈 곳을 가리켜 펼친 손으로 그 자리에 놓는다.
+
+[현재 상태]
+1차 구현 (2026-11-09): gesture_node + gesture_classifier (pytest 11/11), GUI 실물 모드 연동.
+실물 카메라에서 손짓 인식률·포인터 오차는 아직 측정 전.
+2026-11-10 (feat/qt-gui): 「가리키고 1초 멈춤 = 선택」「가리킴 -> 주먹/펼침 = 확정」 판단을 GUI 에서 이 노드로 옮김
+(gesture_events.GestureTracker, pytest 6개) -> /aris3/gesture/event (GestureEvent), HandGesture.hold_progress.
+파라미터 hold_sec(1.0), hold_radius_px(25). 두 GUI(PyQt, ARIS)가 같은 판단을 쓴다.
+2026-11-10: 실물(D455 위쪽 카메라)에서 손짓 Pick & Place 시험 완료 (정상 동작 확인).
+
+[설치 (처음 한 번)]
+python3 -m venv --without-pip ~/venvs/aris3_gesture
+python3 -m pip --python ~/venvs/aris3_gesture/bin/python install mediapipe "numpy<2"
+mkdir -p ~/.config/aris3/models && curl -fsSL -o ~/.config/aris3/models/hand_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+
+[참고]
+- 검지 끝 픽셀은 색 검출과 같은 영상 좌표 -> GUI 의 카메라 보정(픽셀 -> 로봇 XY)을 그대로 쓴다.
+- 보정은 큐브 윗면(약 4 cm) 높이에서 잰 것이라, 놓을 자리를 가리킬 때는 손끝을 판에 대야 오차가 작다.
+- MediaPipe 1.x 에는 mp.solutions 가 없다 (Tasks API 사용).

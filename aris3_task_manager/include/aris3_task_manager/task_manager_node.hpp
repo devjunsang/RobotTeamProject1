@@ -69,7 +69,9 @@ private:
     Stage stage{Stage::VALIDATE};
     double stage_fraction{0.0};   // 현재 단계 안에서의 진행 (0~1, 줄어들지 않음)
     TargetQuery query;
-    Vec3 zone_world;              // 구역 중심의 테이블 표면 점 (world)
+    Vec3 zone_world;              // 놓을 자리: 구역 중심 또는 place_position 의 테이블 표면 점 (world)
+    std::string target_label;     // 사람이 읽는 목표 이름 (색 또는 물체 id)
+    std::string dest_label;       // 사람이 읽는 놓을 자리 ("구역 A" 또는 "(x, y)")
     Vec3 object_world;            // 카메라가 본 물체 중심 (world)
     std::string object_id;
     std::vector<Observation> last_objects;  // 마지막으로 받은 영상의 모든 물체 (구역 점유 확인용)
@@ -128,6 +130,7 @@ private:
   Workspace workspace_;
   std::map<std::string, Vec3> zones_world_;   // 구역 이름 → 테이블 표면 점 (world)
   std::vector<std::string> known_colors_;
+  double table_z_world_{0.75};
   double zone_tolerance_m_{0.03};
   double zone_clear_radius_m_{0.06};
   int perception_frames_{5};

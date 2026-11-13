@@ -20,6 +20,9 @@ PHASE 1부터 지속
 1차 구현 (2026-11-08): simulation.launch.py - 탁자(0.75 m) 위 로봇, 정육면체 3개(빨강·파랑·노랑),
 Top View 카메라, 팔 궤적 컨트롤러(arm_controller, MoveIt 용) + 그리퍼 컨트롤러 활성화 검증.
 관절 직접 시험용 dsr_position_controller 는 inactive 로 올라감 (config/gz_controllers.yaml 참고)
+2026-11-10: aris3_real_sim.launch.py - 실물 경로(aris3_real_bridge)를 로봇 없이 시험하는 실물 비슷한 시뮬레이션.
+팔 = 두산 가상 컨트롤러 관절을 따라감(dsr_position_controller), 실물 비슷한 카메라(1280x720, 0.85 m), 큐브를 로봇 앞으로.
+simulation.launch.py 에 camera:=true|false, arm_controller:=arm_controller|dsr_position_controller 인자 추가 (기본값 = 예전 그대로).
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.
