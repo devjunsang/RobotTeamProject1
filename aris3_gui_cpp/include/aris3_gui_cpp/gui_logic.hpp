@@ -98,7 +98,14 @@ std::string colorKo(const std::string & color);
 // 말할 물체 이름: 「노란색 큐브」 「파란색 삼각형」. 색·도형이 없으면 「고르신 물체」
 std::string objectKo(const std::string & color, const std::string & shape);
 // 명령을 받아 실행할 때의 대답: 「네, 노란색 큐브를 잡습니다.」. 모르는 동작이면 다시 말해 달라는 문장
+// 색 탐색 (2026-11-13): 말한 색이 로봇 팔에 가려 안 보일 때 J1 을 돌릴 목표 (시작 자세 기준 [deg]).
+// 좌우로 점점 넓게 갔다가 마지막에 시작 자세(0)로 돌아온다.
+std::vector<double> searchSweepDeg();
+// want 중에서 seen(지금 검출된 색들)에 없는 색 (중복·빈 값 제외, 순서 유지)
+std::vector<std::string> missingColors(const std::vector<std::string> & want, const std::vector<std::string> & seen);
+
+// target_color: 쌓기의 받침 큐브 색 (2026-11-13) - 「네, 노란색 큐브를 파란색 큐브 위에 올립니다.」
 std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
-  bool ref_place);
+  bool ref_place, const std::string & target_color = "");
 
 }  // namespace aris

@@ -20,6 +20,7 @@ ROS 2 msg / srv / action
 1차 정의 (2026-11-07): msg DetectedObject, DetectedObjectArray, TaskStatus / srv GripperCommand (OPEN, CLOSE, STATUS) / action ExecuteTask
 - 이름·필드는 설계 문서 4장의 후보 계약을 따름. 바꾸면 사용하는 모든 패키지를 다시 빌드할 것
 추가 (2026-11-08): msg VoiceCommand (/aris3/voice_command, aris3_voice -> GUI)
+추가 (2026-11-13): VoiceCommand 에 target_color (쌓기 받침 색), RealPickPlace 에 PICK_AND_STACK=6
 추가 (2026-11-09): msg HandGesture (/aris3/gesture), ExecuteTask 에 target_id·place_position, VoiceCommand 에 home·지시어
 추가 (2026-11-10, 실물 로직을 aris3_real_bridge 노드로 옮기기 위한 계약 - 두 GUI(PyQt, ARIS C++)가 같이 씀):
   msg RealRobotState (/aris3/real/state), srv RealCalibration (/aris3/real/calibration),

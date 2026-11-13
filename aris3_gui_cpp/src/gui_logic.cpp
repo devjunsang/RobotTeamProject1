@@ -163,10 +163,29 @@ std::string objectKo(const std::string & color, const std::string & shape)
   return c.empty() ? s : c + " " + s;
 }
 
+std::vector<double> searchSweepDeg()
+{
+  return {20.0, 40.0, -20.0, -40.0, 0.0};
+}
+
+std::vector<std::string> missingColors(const std::vector<std::string> & want, const std::vector<std::string> & seen)
+{
+  std::vector<std::string> out;
+  for (const auto & c : want) {
+    if (c.empty() || std::find(out.begin(), out.end(), c) != out.end()) {continue;}
+    if (std::find(seen.begin(), seen.end(), c) == seen.end()) {out.push_back(c);}
+  }
+  return out;
+}
+
 std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
-  bool ref_place)
+  bool ref_place, const std::string & target_color)
 {
   const std::string obj = objectKo(color, shape);
+  if (action == "pick" && !target_color.empty()) {   // 쌓기: 받침 큐브 위에 올리기
+    const std::string base = objectKo(target_color, "cube");
+    return "네, " + obj + josa(obj, "을", "를") + " " + base + " 위에 올립니다.";
+  }
   if (action == "pick") {
     return ref_place ? "네, " + obj + josa(obj, "을", "를") + " 집어서 고르신 자리로 옮깁니다." :
            "네, " + obj + josa(obj, "을", "를") + " 잡습니다.";

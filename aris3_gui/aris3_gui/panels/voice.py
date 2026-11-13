@@ -73,7 +73,8 @@ class VoiceMixin:
             self.node.log('WARN', f'음성 「{v.text}」 -> 정지')
             self._stop()
             return
-        if v.action in ('resume', 'power_on', 'disconnect'):
+        if v.action in ('resume', 'power_on', 'disconnect') or v.target_color:
+            # 쌓기(「노란 큐브를 파란 큐브 위로」, 2026-11-13)도 ARIS 만 지원 - 여기서 그냥 집기로 실행되지 않게 막는다
             # 「계속해」「가동」「연결해제」 는 ARIS(aris3_gui_cpp) 에서 지원. 여기서는 집기로 잘못 읽히지 않게 막는다
             self.node.log('WARN', f'음성 「{v.text}」: 이 GUI 는 지원하지 않음 - ARIS(aris3_gui_cpp)를 쓰세요')
             return

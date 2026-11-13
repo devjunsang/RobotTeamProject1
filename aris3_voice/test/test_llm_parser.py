@@ -50,8 +50,8 @@ def test_to_command_same_shape_as_rule_parser():
 
 def test_to_command_rejects_values_outside_schema():
     """스키마 밖 값(지어낸 동작·색)은 빈 값 -> 실행 불가로 떨어진다 (이중 확인)."""
-    cmd = to_command({'action': 'throw', 'color': 'purple'}, '보라색 던져')
-    assert cmd['action'] == '' and cmd['color'] == ''
+    cmd = to_command({'action': 'throw', 'color': 'purple', 'target_color': 'black'}, '보라색 던져')
+    assert cmd['action'] == '' and cmd['color'] == '' and cmd['target_color'] == ''
     assert not validate_command(cmd)[0]
 
 
@@ -116,3 +116,18 @@ def test_live_haiku(text, action, color):
     cmd = p.parse(text)
     assert cmd is not None, p.why_off
     assert (cmd['action'], cmd['color']) == (action, color), cmd
+    assert cmd['target_color'] == '', cmd
+
+
+@pytest.mark.skipif(not LIVE, reason='ANTHROPIC_API_KEY 또는 anthropic 패키지 없음')
+@pytest.mark.parametrize('text, color, target', [
+    ('노란색 큐브를 파란색 큐브 위로 옮겨줘', 'yellow', 'blue'),
+    ('파란 거 위에 빨간 거 올려', 'red', 'blue'),
+    ('노란 큐브 초록 큐브 위에 쌓아 줘', 'yellow', 'green'),
+])
+def test_live_haiku_stack(text, color, target):
+    """쌓기 2중 명령: 집을 색과 받침 색을 나눠 읽는가."""
+    p = LlmParser(timeout_s=10.0)
+    cmd = p.parse(text)
+    assert cmd is not None, p.why_off
+    assert (cmd['action'], cmd['color'], cmd['target_color']) == ('pick', color, target), cmd

@@ -32,11 +32,11 @@ Panel::Panel(const QString & title, QWidget * parent)
   body_->setContentsMargins(10, 8, 10, 8);
   body_->setSpacing(6);
   v->addWidget(holder, 1);
-  // 입체감: 판이 바탕에서 떠 보이게 (Qt 스타일시트는 그림자를 못 그림)
+  // HUD 빛: 판 둘레에 아크 리액터 청록 빛이 은은히 번지게 (Qt 스타일시트는 그림자·빛을 못 그림)
   auto * sh = new QGraphicsDropShadowEffect(this);
-  sh->setBlurRadius(18);
-  sh->setOffset(0, 5);
-  sh->setColor(QColor(0, 0, 0, 200));
+  sh->setBlurRadius(22);
+  sh->setOffset(0, 0);
+  sh->setColor(QColor(95, 244, 255, 90));
   setGraphicsEffect(sh);
 }
 

@@ -10,6 +10,9 @@ ARIS3 변경 (2026-11-08, 11-09):
     「연결해제」(disconnect), 「가동」(power_on: 접속 후 팔을 위로 일자로 펴기) - 2026-11-11
   - 지시어 「이거/그거/저거」(화면에서 고른 물체), 「저기/여기/거기」(화면에서 고른 자리).
     지금은 마우스 클릭, 이후 손짓이 가리킨 것을 쓴다. 실제 물체·자리 확인은 GUI 가 한다
+  - 쌓기 (2026-11-13): 「노란 큐브를 파란 큐브 위로 옮겨줘」 -> pick, color=yellow, target_color=blue.
+    「위」 바로 앞에 나온 색이 받침, 다른 색이 집을 큐브 (「파란 큐브 위에 노란 큐브 올려」 도 같은 뜻).
+    「이거 파란 큐브 위에 올려」 -> 화면에서 고른 물체를 파랑 위로
 
 ROS 에 의존하지 않는 순수 함수라서 단위 시험(test/test_command_parser.py)에서 바로 쓴다.
 """
@@ -65,6 +68,8 @@ RESUME_WORDS = ["계속해", "계속하", "계속진행", "이어서", "이어�
 # 접속 (2026-11-11): 「연결해제」 가 「연결해」 를 품고 있으므로 끊기를 먼저 본다
 DISCONNECT_WORDS = ["연결해제", "연결끊", "연결을끊", "접속해제", "접속끊", "접속을끊", "전원꺼", "꺼져"]
 POWER_ON_WORDS = ["가동", "기동", "작동시작", "깨어나", "일어나"]
+# 쌓기 (2026-11-13): 「~ 위에/위로」 또는 「올려/쌓아」 가 있고 색이 둘이면 한 큐브를 다른 큐브 위에 놓는다
+STACK_WORDS = ["위에", "위로", "위쪽", "올려", "올리", "쌓아", "쌓기", "쌓으"]
 
 
 def normalize_text(text):
@@ -82,8 +87,56 @@ def _first_match(text, table):
     return ""
 
 
+def _colors_in_order(norm):
+    """문장에 나온 색을 나온 순서대로 [(위치, 색, 그 색 낱말 끝 위치)]. 같은 색은 처음 한 번만."""
+    found = []
+    for key, words in COLOR_WORDS.items():
+        hits = [(norm.find(w), len(w)) for w in words if w in norm]
+        if hits:
+            pos, n = min(hits)
+            found.append((pos, key, pos + n))
+    return sorted(found)
+
+
+def stack_colors(norm):
+    """쌓기 문장이면 (집을 색, 받침 색), 아니면 None. 집을 색이 ""면 「이거」(화면에서 고른 물체).
+
+    「위」 가 바로 뒤따르는 색이 받침이다: 「노란 큐브를 파란 큐브 위로」, 「파란 큐브 위에 노란 거 올려」.
+    「위」 가 없으면(「노랑을 파랑에 쌓아」) 먼저 말한 색이 집을 큐브다.
+    """
+    if not any(w in norm for w in STACK_WORDS):
+        return None
+    cols = _colors_in_order(norm)
+    if not cols:
+        return None
+    segs = []                                   # 각 색 낱말 뒤 ~ 다음 색 앞
+    for i, (_pos, key, end) in enumerate(cols):
+        nxt = cols[i + 1][0] if i + 1 < len(cols) else len(norm)
+        segs.append((key, norm[end:nxt]))
+    under = [k for k, seg in segs if seg[:8].find("위") >= 0]
+    if len(cols) == 1:                          # 「이거 파란 큐브 위에 올려」
+        if under and any(w in norm for w in OBJECT_DEIXIS):
+            return "", under[0]
+        return None
+    base = under[0] if under else cols[1][1]
+    obj = next(k for _p, k, _e in cols if k != base)
+    return obj, base
+
+
 def parse_command(text):
-    """문장 -> {action, color, shape, ambiguous, original_text, normalized_text}."""
+    """문장 -> {action, color, shape, target_color, ambiguous, ref_object, ref_place, original_text, normalized_text}."""
+    cmd = _parse(text)
+    cmd["target_color"] = ""
+    if cmd["action"] in ("pick", "place", ""):
+        st = stack_colors(cmd["normalized_text"])
+        if st is not None:                      # 쌓기: 집어서 받침 큐브 위에 놓기 (자리는 화면 클릭 대신 받침 큐브)
+            cmd.update(action="pick", color=st[0], target_color=st[1], ambiguous=False,
+                       ref_object=not st[0], ref_place=False)
+    return cmd
+
+
+def _parse(text):
+    """문장 -> {action, color, shape, ambiguous, original_text, normalized_text} (쌓기 전 기본 해석)."""
     norm = normalize_text(text)
     color = _first_match(norm, COLOR_WORDS)
     shape = _first_match(norm, SHAPE_WORDS)
@@ -130,6 +183,15 @@ def validate_command(cmd, known_colors=None):
     """(실행 가능한가, 이유). known_colors 를 주면 그 안의 색만 허용한다."""
     if cmd["ambiguous"]:
         return False, "모호한 명령입니다. 다시 말씀해 주세요."
+    if cmd["action"] == "pick" and cmd.get("target_color"):
+        if cmd["target_color"] == cmd["color"]:
+            return False, "같은 색 큐브 위에 쌓으라는 명령입니다. 받침 큐브의 색을 다시 말씀해 주세요."
+        if known_colors is not None and cmd["target_color"] not in known_colors:
+            return False, f"작업 공간에 없는 색입니다: {cmd['target_color']}"
+        if not cmd["color"] and not cmd.get("ref_object"):
+            return False, "쌓을 물체의 색이 지정되지 않았습니다."
+        what = cmd["color"] or "화면에서 고른 물체"
+        return True, f"STACK 명령 생성 ({what} -> {cmd['target_color']} 위)"
     if cmd["action"] == "pick":
         if cmd.get("ref_object") and not cmd["color"]:
             return True, "PICK 명령 생성 (화면에서 고른 물체" + (" -> 화면에서 고른 자리)" if cmd.get("ref_place") else ")")

@@ -360,6 +360,12 @@ void RealBackend::pickPlace(uint8_t kind, const std::string & what, const std::s
   sendAction<PickPlace>(pick_client_, g, what, pick_pending_);
 }
 
+bool RealBackend::motionPending()
+{
+  std::lock_guard<std::mutex> lk(mtx_);
+  return motion_pending_;
+}
+
 bool RealBackend::pickRunning()
 {
   const auto s = state();

@@ -118,6 +118,16 @@ def test_pick_and_place_does_not_carry_when_empty():
     assert seq.step == '잡았는지 확인'
 
 
+def test_pick_and_stack_places_one_cube_higher():
+    """쌓기: 집는 높이 180 mm 로 집고, 받침 큐브 위에서는 180 + 큐브 40 + 여유 5 mm 까지만 내려가 놓는다."""
+    link = FakeLink(grip_close_pos=500)
+    seq = PickSequence(link, log=lambda m: None)
+    run(seq, seq.pick_and_stack, 420.0, 30.0, 180.0, 300.0, -150.0)
+    assert ('move', 420, 30, 180, '집는 높이로 하강') in link.calls
+    assert ('move', 300, -150, 225, '놓는 높이로 하강') in link.calls       # 180 + 40 + 여유 3 + 2
+    assert seq.last_ok
+
+
 def test_second_start_is_refused_while_running():
     """이미 순서가 진행 중이면 새 순서를 거부한다."""
     link = FakeLink()

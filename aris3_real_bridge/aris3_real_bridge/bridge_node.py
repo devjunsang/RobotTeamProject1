@@ -33,7 +33,7 @@ from std_srvs.srv import SetBool, Trigger
 from aris3_interfaces.action import RealMotion, RealPickPlace
 from aris3_interfaces.msg import DetectedObjectArray, RealRobotState
 from aris3_interfaces.srv import RealCalibration
-from aris3_real_bridge.real_pick import CALIB_PATH, PickSequence, PixelCalibration
+from aris3_real_bridge.real_pick import CALIB_PATH, STACK_MM, STACK_SIM_MM, PickSequence, PixelCalibration
 from aris3_real_bridge.virtual import ServiceGripper, make_virtual_bringup
 
 # 가상 모드(시뮬레이션) 보정 파일 - 실물 보정(CALIB_PATH)과 따로 둔다
@@ -44,6 +44,7 @@ MAX_CART_VEL = 100.0          # mm/s
 GRIP_CLOSE_POS, GRIP_CURRENT_MA, GRIP_VEL = 740, 300, 1500
 REFRESH_PX = 40.0             # 집기 직전: 받은 픽셀에서 이 거리 안의 검출로 큐브 위치를 고친다
 PX_FRESH_S = 1.0              # 이보다 오래된 검출은 쓰지 않는다 (보정 ① 은 2 s)
+STACK_MIN_SEP_MM = 30.0       # 쌓기: 집을 큐브와 받침 큐브가 이보다 가까우면 같은 큐브로 보고 거부 (큐브 40 mm)
 STANDBY, MOVING = 1, 2
 # launch 에서 z_min_mm:=77 처럼 정수를 줘도 받도록 (기본은 타입 고정이라 노드가 죽었다), 읽을 때 float()/int()
 ANY_TYPE = ParameterDescriptor(dynamic_typing=True)
@@ -397,13 +398,28 @@ class RealBridge(Node):
             notes.append(f'{name or "큐브"} 가 지금 보이지 않음 - 받은 픽셀 사용')
         return self.calib.to_robot(u, v)
 
+    def _stack_base_xy(self, g, x, y):
+        """쌓기의 받침 큐브 로봇 (x, y), 또는 거부 이유(str).
+
+        받침 큐브는 지금 검출에서 다시 찾는다 (안 보이면 거부 - 빈 곳 4 cm 위에서 떨어뜨리지 않게).
+        집을 큐브와 같은 자리면(같은 큐브를 두 번 고름) 거부한다.
+        """
+        near = nearest_px(self._fresh_px(PX_FRESH_S), g.place_u, g.place_v, REFRESH_PX)
+        if near is None:
+            return '받침 큐브가 지금 카메라에 보이지 않음'
+        bx, by = self.calib.to_robot(near.pose.pose.position.x, near.pose.pose.position.y)
+        if math.hypot(bx - x, by - y) < STACK_MIN_SEP_MM:
+            return '집을 큐브와 받침 큐브가 같은 자리'
+        return bx, by
+
     def _exec_pick(self, goal_handle):
         """/aris3/real/pick_place 실행: 검사 -> 대상 픽셀을 지금 검출로 고쳐 로봇 좌표로 -> PickSequence 시작 -> 끝날 때까지 단계 feedback."""
         g = goal_handle.request
         G = RealPickPlace.Goal
         res = RealPickPlace.Result()
         names = {G.HOVER: '큐브 위로', G.PICK: '집기', G.PLACE_AT: '고른 자리에 놓기',
-                 G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기', G.RESUME: '이어서 하기'}
+                 G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기', G.RESUME: '이어서 하기',
+                 G.PICK_AND_STACK: '쌓기'}
         what = names.get(g.kind)
         res.holding = hold_code(self.picker.holding, RealPickPlace.Result)
         if what is None:
@@ -417,10 +433,17 @@ class RealBridge(Node):
         notes = []
         z = self.calib.grasp_z
         P = self.picker
-        if g.kind in (G.HOVER, G.PICK, G.PICK_AND_PLACE):
+        if g.kind in (G.HOVER, G.PICK, G.PICK_AND_PLACE, G.PICK_AND_STACK):
             x, y = self._target_xy(g.target_name, g.target_u, g.target_v, notes)
         if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE):
             px, py = self.calib.to_robot(g.place_u, g.place_v)
+        if g.kind == G.PICK_AND_STACK:
+            why = self._stack_base_xy(g, x, y)
+            if isinstance(why, str):
+                res.success, res.message = False, f'{what} 거부: {why}'
+                self.get_logger().warn(res.message)
+                return self._finish(goal_handle, res)
+            px, py = why
         for n in notes:
             self.get_logger().warn(f'{what}: {n}')
         self._touch()
@@ -434,6 +457,8 @@ class RealBridge(Node):
             started = P.place_at(px, py, z)
         elif g.kind == G.PICK_AND_PLACE:
             started = P.pick_and_place(x, y, z, px, py)
+        elif g.kind == G.PICK_AND_STACK:
+            started = P.pick_and_stack(x, y, z, px, py)
         else:
             started = P.place_here(z)
         if not started:
@@ -569,10 +594,10 @@ def main(args=None):
     # 접속 설정은 이 노드의 파라미터로 받는다 (launch/real_bridge.launch.py)
     cfg = rclpy.create_node('aris3_real_bridge_cfg')
     for k, v in (('ns', 'e0509_real'), ('host', '110.120.1.66'), ('port', 12345), ('z_min_mm', 50.0),
-                 ('mode', 'real'), ('gripper', 'drl'), ('calib_path', ''),
+                 ('mode', 'real'), ('gripper', 'drl'), ('calib_path', ''), ('cube_mm', 0.0),
                  ('gripper_joint_topic', '/e0509_gripper/joint_states'), ('gripper_joint', 'gripper_rh_r1')):
         cfg.declare_parameter(k, v, ANY_TYPE)
-    P = {k: cfg.get_parameter(k).value for k in ('ns', 'host', 'port', 'z_min_mm', 'mode', 'gripper', 'calib_path',
+    P = {k: cfg.get_parameter(k).value for k in ('ns', 'host', 'port', 'z_min_mm', 'mode', 'gripper', 'calib_path', 'cube_mm',
                                                   'gripper_joint_topic', 'gripper_joint')}
     cfg.destroy_node()
     ns, host, port, z_min = str(P['ns']), str(P['host']), int(P['port']), float(P['z_min_mm'])
@@ -598,6 +623,9 @@ def main(args=None):
         gripper_ready = lambda: node_holder['grip_cli'].service_is_ready()     # noqa: E731
     node = RealBridge(link, mgr, conn, state_ko=STATE_KO, calib_path=os.path.expanduser(calib_path),
                       gripper_ready=gripper_ready)
+    # 쌓기 높이 = 큐브 한 개: cube_mm 를 주면 그 값, 아니면 실물 4 cm / 시뮬레이션 5 cm (큐브 크기가 다름)
+    node.picker.stack_mm = float(P['cube_mm']) or (STACK_MM if mode == 'real' else STACK_SIM_MM)
+    node.get_logger().info(f'쌓기 높이(큐브 한 개): {node.picker.stack_mm:.0f} mm')
     if gripper == 'service':
         _install_service_gripper(node, link, str(P['gripper_joint_topic']), str(P['gripper_joint']), node_holder)
     node.get_logger().info(f'로봇 {ns} @ {host}:{port} ({"가상 컨트롤러" if mode == "virtual" else "실물"}), '

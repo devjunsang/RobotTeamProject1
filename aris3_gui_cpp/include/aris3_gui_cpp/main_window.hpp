@@ -120,7 +120,11 @@ private:
   void placeSelected(const QString & heard = QString());
   void placeHere(const QString & heard = QString());
   void pickAndPlace(const QString & heard = QString());
-  void realVoice(const aris3_interfaces::msg::VoiceCommand & v);
+  // 쌓기 (2026-11-13): 고른 큐브(pick_px_)를 base_px 의 받침 큐브 위에 올린다 (브리지 PICK_AND_STACK)
+  void stackRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name);
+  // allow_search: 말한 색이 안 보이면 팔을 좌우로 돌려 찾는다 (찾은 뒤 다시 부를 때는 false - 무한 반복 방지)
+  void realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool allow_search = true);
+  void searchTick();                                    // 색 탐색 진행 (refreshReal 에서 주기마다)
   void homeVoice(const QString & heard);
   void powerOnTick();                                   // 「가동」 대기: 준비되면 가동 자세로
   void startHomeTick();                                 // 창을 연 직후 홈 시작: 단계별로 진행 (refreshReal 에서 부름)
@@ -181,6 +185,19 @@ private:
   // 「아리스 가동」: 접속이 끝나고(대기) 조작 허용이 켜지면 팔을 편다. 이 시각까지 기다린다 (없으면 대기 안 함)
   std::optional<std::chrono::steady_clock::time_point> power_on_until_;
   bool power_on_arm_warned_ = false;
+  // 색 탐색 (2026-11-13): 말한 색이 로봇 팔에 가려 위쪽 카메라에 안 보이면 J1 을 좌우로 천천히 돌리며 찾는다.
+  // 한 단계 이동이 끝나 멈춘 뒤 검출을 보고, 찾으면 원래 음성 명령을 다시 실행한다. 정지(onStop)하면 그만.
+  struct ColorSearch {
+    aris3_interfaces::msg::VoiceCommand v;              // 찾은 뒤 실행할 원래 명령
+    std::vector<std::string> colors;                    // 찾는 색
+    std::size_t step = 0;                               // 다음 searchSweepDeg() 목표 번호
+    std::optional<double> start_j1;
+    std::optional<double> sent_from;                    // 마지막 조그를 보낼 때의 J1 (시작 기준) - 안 움직였으면 그만                     // 탐색 시작 때 J1 [deg] (첫 주기에 상태에서 읽음)
+    bool sent = false;                                  // 이번 단계 이동을 보냈고 아직 끝나지 않음
+    std::chrono::steady_clock::time_point settle;       // 이 시각 이후의 검출을 본다 (멈춘 뒤 영상이 따라오게)
+    std::chrono::steady_clock::time_point deadline;     // 전체 제한 시간
+  };
+  std::optional<ColorSearch> search_;
   // 창을 연 직후 홈 시작: 0 = 브리지 기다림 -> 1 = 접속 기다림 -> 2 = 조작 허용 기다림 -> 끝(nullopt)
   std::optional<std::chrono::steady_clock::time_point> start_home_until_;
   int start_home_step_ = 0;

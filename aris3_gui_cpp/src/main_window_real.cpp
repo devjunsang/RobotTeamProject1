@@ -6,10 +6,19 @@
 #include <QHBoxLayout>
 #include <QTimer>
 
+#include <algorithm>
 #include <cmath>
 
 #include "aris3_gui_cpp/main_window.hpp"
 #include "aris3_gui_cpp/theme.hpp"
+
+namespace
+{
+// 색 탐색 속도: 관절 최대 45°/s 의 15 % ≈ 7°/s (천천히 - 사람이 보고 멈출 수 있게)
+constexpr int kSearchSpeedPct = 15;
+// 한 번에 돌리는 J1 [deg]: 브리지(RobotLink) 관절 조그 한도 10°. 매 10° 마다 멈춰 카메라를 본다
+constexpr double kSearchStepDeg = 10.0;
+}  // namespace
 
 namespace aris
 {
@@ -181,6 +190,7 @@ void MainWindow::refreshReal(const Snapshot & s)
   }
   gestureTick(s);
   powerOnTick();                                     // 「아리스 가동」 대기
+  searchTick();                                      // 가려진 색 찾기 (팔을 좌우로)
   startHomeTick();                                   // 창을 연 직후: 접속 -> 조작 허용 -> 홈
   // 로봇 상태·복구 버튼·손으로 움직이기
   const QString st = real_->robotStateText();
@@ -365,14 +375,30 @@ void MainWindow::pickAndPlace(const QString & heard)
   }
 }
 
+void MainWindow::stackRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name)
+{
+  if (!armOk("쌓기")) {return;}
+  const auto t = pickTarget("쌓기");
+  const auto xy = real_->toRobot(base_px[0], base_px[1]);
+  if (!t || !xy) {return;}
+  if (ask(QStringLiteral("쌓기"), heard + QStringLiteral("\n\n%1 을(를) 로봇 X %2, Y %3 mm 에서 집어\n"
+      "%4 (X %5, Y %6 mm) 위에 올립니다. 놓는 높이는 큐브 한 개만큼 높습니다. (잡지 못하면 옮기지 않음)\n\n"
+      "로봇 주변(손 포함)이 비었습니까?")
+      .arg(QString::fromStdString(pick_name_)).arg((*t)[0], 0, 'f', 0).arg((*t)[1], 0, 'f', 0)
+      .arg(QString::fromStdString(base_name)).arg((*xy)[0], 0, 'f', 0).arg((*xy)[1], 0, 'f', 0)))
+  {
+    real_->pickPlace(PP::PICK_AND_STACK, "쌓기", pick_name_, pick_px_, base_px);
+  }
+}
+
 // ======================================================================== 실물 음성 (매번 확인창)
-void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
+void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool allow_search)
 {
   if (v.action == "stop") {                          // 「멈춰」 는 언제나 (보통은 받는 즉시 이미 처리됨)
     onStop();
     return;
   }
-  if (real_->pickRunning() || dialog_open_) {
+  if (real_->pickRunning() || dialog_open_ || search_) {
     node_->log("WARN", "음성 「" + v.text + "」 무시: 이전 순서 진행 중이거나 확인창이 떠 있음");
     node_->say("지금은 다른 작업을 하고 있어요.");
     return;
@@ -380,7 +406,6 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
   const QString heard = QStringLiteral("음성: 「%1」").arg(QString::fromStdString(v.text));
   // ARIS 목소리 (2026-11-11): 실행하면 「네, 노란색 큐브를 잡습니다.」, 못 하면 그 이유를 말한다.
   // 움직이는 명령은 아래 동작 함수가 하는 검사(조작 허용·준비·보정·놓을 자리)를 먼저 해 보고 대답을 고른다.
-  const auto obj = objectKo(v.color, v.shape);
   const auto refuse = [&](bool need_calib, bool need_place) -> std::string {
       if (!chk_arm_->isChecked()) {return "조작 허용을 먼저 켜 주세요.";}
       if (!whyNotReady().isEmpty()) {return "아직 움직일 준비가 되지 않았어요.";}
@@ -427,6 +452,79 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
     homeVoice(heard);
     return;
   }
+  // 말한 색(집을 큐브·받침 큐브)이 카메라에 하나도 없으면: 로봇 팔에 가렸을 수 있으니 팔을 좌우로 돌려 찾는다.
+  if (v.action == "pick" && allow_search) {
+    std::vector<std::string> seen;
+    for (const auto & o : node_->snapshot().px_objects) {seen.push_back(o.color);}
+    const auto missing = missingColors({v.color, v.target_color}, seen);
+    if (!missing.empty() && node_->statusFlags().px_detections) {
+      const auto why = refuse(true, false);
+      if (!why.empty()) {
+        node_->say(why);
+        return;
+      }
+      std::string names;
+      for (const auto & c : missing) {
+        names += (names.empty() ? "" : ", ") + objectKo(c, "cube");
+      }
+      const auto last = objectKo(missing.back(), "cube");
+      node_->say(names + josa(last, "이", "가") + " 안 보여서 팔을 옆으로 움직여 찾아볼게요.");
+      node_->log("INFO", "색 탐색 시작: " + names + " 이(가) 안 보임 - J1 을 좌우로 천천히 돌리며 찾습니다 (정지하면 그만)");
+      ColorSearch S;
+      S.v = v;
+      S.colors = missing;
+      S.settle = std::chrono::steady_clock::now();
+      S.deadline = S.settle + std::chrono::seconds(90);
+      search_ = S;
+      return;
+    }
+  }
+  // 그 색 큐브가 카메라에 꼭 하나 보이면 그 검출. 없거나 여럿이면 이유를 말하고 nullopt (쌓기·색 집기 공용)
+  const auto onlyOne = [&](const std::string & color, bool is_base)
+    -> std::optional<aris3_interfaces::msg::DetectedObject> {
+      std::vector<aris3_interfaces::msg::DetectedObject> same;
+      for (const auto & o : node_->snapshot().px_objects) {
+        if (o.color == color) {same.push_back(o);}
+      }
+      const auto name = objectKo(color, is_base ? "cube" : v.shape);
+      if (same.empty()) {
+        node_->log("WARN", "음성: 카메라에 " + color + " 큐브가 보이지 않음");
+        node_->say("카메라에 " + name + josa(name, "이", "가") + " 보이지 않아요.");
+        return std::nullopt;
+      }
+      if (same.size() > 1) {
+        node_->log("WARN", "음성: " + color + " 큐브가 " + std::to_string(same.size()) + "개" +
+          (is_base ? std::string(" - 어느 큐브 위에 올릴지 모름") : std::string(" - 화면에서 클릭한 뒤 「아리스 이거 …」")));
+        node_->say(is_base ? name + josa(name, "이", "가") + " 여러 개라 어느 위에 올릴지 모르겠어요." :
+          name + josa(name, "이", "가") + " 여러 개 있어요. 화면에서 하나를 골라 주세요.");
+        return std::nullopt;
+      }
+      return same[0];
+    };
+  if (!v.target_color.empty()) {                     // 쌓기 (2026-11-13): 「노란 큐브를 파란 큐브 위로 옮겨줘」
+    if (!v.color.empty()) {                          // 집을 큐브: 말한 색, 아니면 화면에서 고른 큐브(「이거」)
+      const auto o = onlyOne(v.color, false);
+      if (!o) {return;}
+      pick_px_ = std::array<double, 2>{o->pose.pose.position.x, o->pose.pose.position.y};
+      pick_name_ = o->id.empty() ? o->color : o->id;
+      updatePickLabel();
+    } else if (!pick_px_) {
+      node_->say("어떤 물체인지 화면에서 먼저 골라 주세요.");
+      return;
+    }
+    const auto base = onlyOne(v.target_color, true);
+    if (!base) {return;}
+    const std::array<double, 2> base_px{base->pose.pose.position.x, base->pose.pose.position.y};
+    if (std::hypot((*pick_px_)[0] - base_px[0], (*pick_px_)[1] - base_px[1]) < 20.0) {
+      node_->log("WARN", "쌓기: 집을 큐브와 받침 큐브가 같음");
+      node_->say("올릴 물체와 받침 큐브가 같아요.");
+      return;
+    }
+    const auto why = refuse(true, false);
+    node_->say(why.empty() ? voiceReply("pick", v.color, v.shape, false, v.target_color) : why);
+    stackRun(heard, base_px, base->id.empty() ? base->color : base->id);
+    return;
+  }
   if (v.refers_selected_place && v.color.empty() && real_->holding().value_or(false)) {
     const auto why = refuse(true, true);
     node_->say(why.empty() ? voiceReply("place", "", "", true) : why);
@@ -440,23 +538,10 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
     return;
   }
   if (!v.color.empty()) {                            // 「빨간 큐브 집어줘」: 그 색 검출이 하나일 때만
-    std::vector<aris3_interfaces::msg::DetectedObject> same;
-    for (const auto & o : node_->snapshot().px_objects) {
-      if (o.color == v.color) {same.push_back(o);}
-    }
-    if (same.empty()) {
-      node_->log("WARN", "음성: 카메라에 " + v.color + " 큐브가 보이지 않음");
-      node_->say("카메라에 " + obj + josa(obj, "이", "가") + " 보이지 않아요.");
-      return;
-    }
-    if (same.size() > 1) {
-      node_->log("WARN", "음성: " + v.color + " 큐브가 " + std::to_string(same.size()) +
-        "개 - 화면에서 클릭한 뒤 「아리스 이거 집어줘」");
-      node_->say(obj + josa(obj, "이", "가") + " 여러 개 있어요. 화면에서 하나를 골라 주세요.");
-      return;
-    }
-    pick_px_ = std::array<double, 2>{same[0].pose.pose.position.x, same[0].pose.pose.position.y};
-    pick_name_ = same[0].id.empty() ? same[0].color : same[0].id;
+    const auto o = onlyOne(v.color, false);
+    if (!o) {return;}
+    pick_px_ = std::array<double, 2>{o->pose.pose.position.x, o->pose.pose.position.y};
+    pick_name_ = o->id.empty() ? o->color : o->id;
     updatePickLabel();
   } else if (!pick_px_) {                            // 「이거 집어줘」
     node_->log("WARN", "「이거」 가 무엇인지 모름 - 먼저 카메라 화면에서 큐브를 클릭하거나 가리키세요");
@@ -469,6 +554,73 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v)
   } else {
     pickRun(heard);
   }
+}
+
+// 색 탐색 한 주기: 이동 중이면 기다리고, 멈춘 뒤 잠깐(영상 따라오기) 기다려 검출을 본다.
+// 찾으면 원래 명령을 다시 실행, 못 찾으면 다음 좌우 목표로. 마지막 목표(0°)까지 못 찾으면 시작 자세에서 그만.
+void MainWindow::searchTick()
+{
+  if (!search_) {return;}
+  auto & S = *search_;
+  const auto now = std::chrono::steady_clock::now();
+  const auto fail = [&](const std::string & say, const std::string & log) {
+      node_->log("WARN", "색 탐색: " + log);
+      node_->say(say);
+      search_.reset();
+    };
+  std::string names;
+  for (const auto & c : S.colors) {names += (names.empty() ? "" : ", ") + objectKo(c, "cube");}
+  if (now > S.deadline) {
+    fail("찾지 못했어요.", "제한 시간(90 초) 초과");
+    return;
+  }
+  if (!chk_arm_->isChecked()) {
+    fail("조작 허용이 꺼져서 찾기를 멈췄어요.", "조작 허용이 꺼져 그만둠");
+    return;
+  }
+  const auto st = real_->state();
+  const bool moving = real_->motionPending() || (st && st->busy);
+  if (S.sent) {
+    if (moving) {return;}                            // 이번 단계 이동 중
+    S.sent = false;
+    S.settle = now + std::chrono::milliseconds(800);   // 멈춘 뒤 새 영상·검출이 들어오게
+    return;
+  }
+  if (now < S.settle || moving) {return;}
+  std::vector<std::string> seen;
+  for (const auto & o : node_->snapshot().px_objects) {seen.push_back(o.color);}
+  if (missingColors(S.colors, seen).empty()) {      // 찾음 -> 원래 명령 실행 (이번에는 다시 찾지 않음)
+    const double off = (st && st->joints_valid && S.start_j1) ? st->joints_deg[0] - *S.start_j1 : 0.0;
+    node_->log("INFO", "색 탐색: " + names + " 찾음 (시작 기준 J1 " + std::to_string(static_cast<int>(std::lround(off))) +
+      "°) - 명령을 이어서 실행");
+    node_->say("찾았어요.");
+    const auto v = S.v;
+    search_.reset();
+    realVoice(v, false);
+    return;
+  }
+  // 지금 J1 (시작 기준). 브리지(RobotLink)는 관절 조그 한 번에 최대 10° 만 가므로 목표까지 여러 번 나눠 간다.
+  if (!st || !st->joints_valid) {return;}
+  if (!S.start_j1) {S.start_j1 = st->joints_deg[0];}
+  const double offset = st->joints_deg[0] - *S.start_j1;
+  if (S.sent_from && std::abs(offset - *S.sent_from) < 0.5) {   // 보낸 조그가 거부되거나 막힘 -> 되풀이하지 않는다
+    fail("팔을 더 돌릴 수 없어서 찾기를 멈췄어요.", "J1 조그가 움직이지 않음 (거부·한계) - 그만둠");
+    return;
+  }
+  const auto sweep = searchSweepDeg();
+  while (S.step < sweep.size() && std::abs(sweep[S.step] - offset) < 1.0) {++S.step;}   // 이 목표는 도착
+  if (S.step >= sweep.size()) {
+    const auto last = objectKo(S.colors.back(), "cube");
+    fail("찾아봤지만 " + names + josa(last, "이", "가") + " 보이지 않아요.", names + " 을(를) 찾지 못함 (시작 자세로 돌아옴)");
+    return;
+  }
+  const double delta = std::clamp(sweep[S.step] - offset, -kSearchStepDeg, kSearchStepDeg);
+  node_->log("INFO", "색 탐색: J1 " + std::string(delta > 0 ? "+" : "") + std::to_string(static_cast<int>(std::lround(delta))) +
+    "° (시작 기준 " + std::to_string(static_cast<int>(std::lround(offset + delta))) + "°, 목표 " +
+    std::to_string(static_cast<int>(sweep[S.step])) + "°)");
+  real_->jogJoint(0, delta, kSearchSpeedPct);
+  S.sent_from = offset;
+  S.sent = true;
 }
 
 // 「가동」 대기: 접속이 끝나 대기 상태이고 조작 허용이 켜지면 가동 자세로. 90 초 안에 안 되면 취소

@@ -653,6 +653,10 @@ void MainWindow::onStop()
   queue_.clear();
   lst_queue_->clear();
   queue_running_ = false;
+  if (search_) {                                     // 색 탐색 중이면 그만 (팔도 같이 멈춤)
+    search_.reset();
+    node_->log("INFO", "색 탐색: 정지로 그만둠");
+  }
   backend_->stop();          // 실물: 브리지 정지 + 작업 취소, 시뮬레이션: 작업 취소 + MoveIt 중단
 }
 
@@ -721,6 +725,11 @@ void MainWindow::onVoiceRun(bool automatic)
   }
   if (v->action == "stop") {                         // 보통은 받는 즉시 처리되지만, 「실행」 버튼으로 와도 정지
     onStop();
+    return;
+  }
+  if (!v->target_color.empty()) {                    // 쌓기 (2026-11-13): 실물 경로(브리지 PICK_AND_STACK)에만 있음
+    node_->log("WARN", "음성 「" + v->text + "」: 쌓기는 실물 모드(--mode real, 시뮬레이션 포함)에서만 지원");
+    node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;
   }
   if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect") {

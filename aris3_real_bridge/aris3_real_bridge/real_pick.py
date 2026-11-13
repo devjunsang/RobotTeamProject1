@@ -38,6 +38,13 @@ GRIP_HOLD_MIN = 100         # 이보다 작으면 닫히지 않은 것 (토크 �
 # 먼 수평 이동은 나눠서 간다: RobotLink 는 한 번에 400 mm 넘는 이동을 거부한다 (보정 오류 방지 안전장치).
 TRAVEL_SEG_MM = 250.0       # 한 구간 최대 수평 거리 (높이 변화가 있어도 400 mm 안에 들게)
 TRAVEL_R_SAFE_MM = 300.0    # 경유점이 베이스에서 이보다 가까우면 바깥으로 밀어 몸통 근처를 지나지 않게
+# 쌓기 (2026-11-13): 받침 큐브 위에 놓을 때 놓는 높이를 큐브 한 개 높이만큼 올린다.
+# 집은 큐브의 아랫면이 받침 큐브 윗면에 닿는 높이 = 집는 높이 + 큐브 높이. 큐브 크기는 실물과 시뮬레이션이 다르다:
+#   실물 작업 큐브 4 cm, 시뮬레이션(aris3_bringup object_layout_real_like.csv) 5 cm
+# 처음에 4 cm 하나로 두었더니 시뮬레이션에서 1 cm 더 눌러 받침 큐브를 옆으로 밀어냈다 (2026-11-13 실측).
+STACK_MM = 40.0             # 실물 큐브 높이 [mm] (기본값). 브리지 파라미터 cube_mm 로 바꿈 (가상 모드 50)
+STACK_SIM_MM = 50.0         # 시뮬레이션 큐브 높이 [mm]
+STACK_CLEAR_MM = 3.0        # 쌓을 때 더 띄우는 여유 [mm] (보정·파지 오차로 받침을 누르지 않게, _place_steps 의 2 mm 에 더함)
 
 
 def travel_waypoints(a, b, seg=TRAVEL_SEG_MM, r_safe=TRAVEL_R_SAFE_MM):
@@ -177,6 +184,7 @@ class PickSequence:
     def __init__(self, link, log):
         """link: RobotLink (또는 시험용 가짜), log: 문자열을 받는 로그 함수."""
         self.link, self.log = link, log
+        self.stack_mm = STACK_MM  # 쌓기 높이 = 큐브 한 개 [mm] (브리지가 모드에 맞게 바꿈)
         self.running = False
         self.holding = None     # 마지막 닫기 결과: True 잡음 / False 빈손 / None 모름
         # 진행 상황 (aris3_real_bridge 가 상태 토픽·액션 feedback 으로 내보냄, 2026-11-10)
@@ -297,8 +305,11 @@ class PickSequence:
             return self.holding is True if require else True
         return ('잡았는지 확인', check)
 
-    def _place_steps(self, x, y, z_grasp):
-        """지금 자리에서 위로 -> (x, y) 위 접근 높이로 -> 놓는 높이로 하강 -> 열기 -> 위로."""
+    def _place_steps(self, x, y, z_grasp, lift=0.0):
+        """지금 자리에서 위로 -> (x, y) 위 접근 높이로 -> 놓는 높이로 하강 -> 열기 -> 위로.
+
+        lift: 놓는 높이를 이만큼 올린다 [mm] (쌓기 = STACK_MM). 접근 높이는 그대로라 받침 큐브 위를 넉넉히 지난다.
+        """
         top = z_grasp + APPROACH_MM
 
         def rise():                         # 지금 XY 에서 접근 높이까지 올라간 뒤 수평 이동
@@ -314,7 +325,7 @@ class PickSequence:
         return [
             ('접근 높이로 올리기', rise),
             self._travel(x, y, top, TRAVEL_VEL, '놓을 자리 위로'),
-            self._move(x, y, z_grasp + 2.0, DESCEND_VEL, '놓는 높이로 하강'),
+            self._move(x, y, z_grasp + lift + 2.0, DESCEND_VEL, '놓는 높이로 하강'),
             self._grip(False),
             self._move(x, y, top, DESCEND_VEL, '위로 빠지기'),
         ]
@@ -339,17 +350,24 @@ class PickSequence:
         """들고 있는 물체를 (x, y) 에 놓는다 (카메라 보정으로 바꾼 놓을 자리)."""
         return self.start('그 자리에 놓기', self._place_steps(x, y, z_grasp))
 
-    def pick_and_place(self, x, y, z_grasp, px, py):
-        """(x, y) 의 큐브를 집어 (px, py) 에 놓는다. 잡지 못했으면 옮기지 않는다."""
+    def pick_and_place(self, x, y, z_grasp, px, py, lift=0.0, name='집어서 옮기기'):
+        """(x, y) 의 큐브를 집어 (px, py) 에 놓는다. 잡지 못했으면 옮기지 않는다.
+
+        lift: 놓는 높이를 올릴 양 [mm] (pick_and_stack 이 큐브 높이를 준다). name: 순서 이름 (로그·화면).
+        """
         top = z_grasp + APPROACH_MM
-        return self.start('집어서 옮기기', [
+        return self.start(name, [
             self._travel(x, y, top, TRAVEL_VEL, '큐브 위 접근 높이로'),
             self._grip(False),
             self._move(x, y, z_grasp, DESCEND_VEL, '집는 높이로 하강'),
             self._grip(True),
             self._check_hold(require=True),
             self._move(x, y, top, DESCEND_VEL, '들어 올리기'),
-        ] + self._place_steps(px, py, z_grasp)[1:])
+        ] + self._place_steps(px, py, z_grasp, lift)[1:])
+
+    def pick_and_stack(self, x, y, z_grasp, bx, by):
+        """(x, y) 의 큐브를 집어 (bx, by) 에 있는 받침 큐브 위에 올린다 (놓는 높이 + 큐브 높이 + 여유)."""
+        return self.pick_and_place(x, y, z_grasp, bx, by, lift=self.stack_mm + STACK_CLEAR_MM, name='쌓기')
 
     def place_here(self, z_grasp):
         """지금 XY 에서 집는 높이(+2 mm) 로 내려 놓고 다시 올라온다."""

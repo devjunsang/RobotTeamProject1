@@ -46,6 +46,7 @@ $P nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"   # GPU Whisper. 없으면 CPU ba
 - 「멈춰」(먹쳐, 멈쳐, 정지, 그만 …)는 **낱말 표로 바로** 처리합니다. 정지는 네트워크에 기대지 않습니다.
 - 나머지는 **Claude Haiku 5.5**가 먼저 해석합니다.
   - 답은 JSON 스키마로 강제합니다. 동작은 pick, place, home, stop, resume, disconnect, power_on 중 하나이고, 색과 도형도 정해진 값만 됩니다.
+  - 쌓기(2중 명령): 「노란 큐브를 파란 큐브 위로 옮겨줘」 → pick, color=yellow, **target_color=blue**. 낱말 표도 같은 규칙(「위」 앞의 색이 받침)으로 읽습니다.
   - 음성 인식이 잘못 적은 말을 소리로 고쳐 읽습니다. 예: 「혐의로」→홈, 「되려나」→놓기, 「노란색 큐구 자바」→노랑 집기.
   - 명령이 아닌 말(「오늘 날씨 어때」)은 빈 동작이 되어 움직이지 않습니다.
 - 키가 없거나, 4초 안에 응답이 없거나, 오류가 나면 **낱말 표**로 넘어갑니다. 두 해석이 다르면 로그에 「해석 차이」로 남깁니다.
@@ -84,7 +85,7 @@ $P nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"   # GPU Whisper. 없으면 CPU ba
 ## 시험
 
 ```bash
-cd aris3_voice && python3 -m pytest -q test/          # 키·네트워크·스피커 없이 (53개)
+cd aris3_voice && python3 -m pytest -q test/          # 키·네트워크·스피커 없이 (60개)
 ANTHROPIC_API_KEY=... PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   ~/venvs/mark1_voice/bin/python -m pytest -q test/test_llm_parser.py   # 실제 Haiku 10문장 포함
 ```

@@ -1,7 +1,7 @@
 """LLM(Claude Haiku 5.5) 음성 명령 해석기 (2026-11-11).
 
 Whisper 가 적은 문장 -> command_parser.parse_command 와 **같은 모양의 dict** (action, color, shape, ref_object,
-ref_place, ambiguous, original_text, normalized_text). 그래서 validate_command·VoiceCommand·GUI·브리지는 그대로다.
+ref_place, ambiguous, original_text, normalized_text, target_color). 그래서 validate_command·VoiceCommand·GUI·브리지는 그대로다.
 
   - 출력은 JSON 스키마로 강제한다 (output_config.format) - LLM 은 정해진 동작 목록 밖의 일을 시킬 수 없다.
     로봇을 실제로 움직이는 것은 여전히 GUI 와 브리지의 안전 검사를 거친다.
@@ -33,11 +33,12 @@ SCHEMA = {
         'action': {'type': 'string', 'enum': ACTIONS},
         'color': {'type': 'string', 'enum': COLORS},
         'shape': {'type': 'string', 'enum': SHAPES},
+        'target_color': {'type': 'string', 'enum': COLORS},
         'ref_object': {'type': 'boolean'},
         'ref_place': {'type': 'boolean'},
         'ambiguous': {'type': 'boolean'},
     },
-    'required': ['action', 'color', 'shape', 'ref_object', 'ref_place', 'ambiguous'],
+    'required': ['action', 'color', 'shape', 'target_color', 'ref_object', 'ref_place', 'ambiguous'],
     'additionalProperties': False,
 }
 
@@ -61,6 +62,11 @@ action:
 
 color: 집을 물체의 색. 부정(「빨간 거 말고 파란 거」)이면 실제로 집을 색(blue). 말하지 않았으면 "".
 shape: 「큐브/정육면체/블록/네모/사각형」 -> cube, 「세모/삼각형」 -> triangle, 「동그라미/원」 -> circle, 없으면 "".
+target_color: 쌓기. 집은 큐브를 다른 큐브 「위에/위로」 놓으라고 하면 그 받침 큐브의 색, 아니면 "".
+  「노란 큐브를 파란 큐브 위로 옮겨줘」 -> pick, color=yellow, target_color=blue.
+  「파란 거 위에 빨간 거 올려」 -> pick, color=red, target_color=blue (위에 놓이는 쪽이 color).
+  「이거 초록 큐브 위에 쌓아」 -> pick, color="", ref_object=true, target_color=green.
+  쌓기일 때 ref_place 는 false (놓을 자리는 받침 큐브).
 ref_object: 「이거/그거/저거/이것」 처럼 화면에서 고른 물체를 가리키면 true. 색을 말했으면 false.
 ref_place: 「저기/여기/거기/그 자리/고른 자리」 처럼 화면에서 고른 자리를 가리키면 true.
 ambiguous: 집으라는 건지 다른 뜻인지 정말 판단할 수 없을 때만 true (예: 「빨간 거 지워줘」 - 「집어줘」 오인식일 수도).
@@ -74,7 +80,7 @@ ambiguous: 집으라는 건지 다른 뜻인지 정말 판단할 수 없을 때�
     「내려나」 「되려나」 「내려 놔」 -> 내려놔 (place)    「자바」 「자파」 「잡하」 -> 잡아 (pick)
     「가동해」 「가도」 -> 가동 (power_on)
   짧은 말이 명령 하나와 소리가 매우 비슷하면 그 명령으로 본다. 어느 명령과도 비슷하지 않으면 "" 로 한다.
-- 명령이 여러 개면 맨 처음 것 하나만.
+- 「A 를 B 위로 옮겨」 는 쌓기 명령 하나다 (color=A, target_color=B). 그 밖에 명령이 여러 개면 맨 처음 것 하나만.
 """
 
 
@@ -164,6 +170,7 @@ def to_command(data, text):
         'action': pick('action', ACTIONS),
         'color': pick('color', COLORS),
         'shape': pick('shape', SHAPES),
+        'target_color': pick('target_color', COLORS),
         'ref_object': bool(data.get('ref_object', False)),
         'ref_place': bool(data.get('ref_place', False)),
         'ambiguous': bool(data.get('ambiguous', False)),

@@ -131,6 +131,31 @@ TEST(VoiceReply, SentencesForEachAction)
   EXPECT_EQ(aris::voiceReply("", "", "", false), "잘 못 알아들었어요. 다시 말씀해 주세요.");
 }
 
+// 색 탐색 (2026-11-13): 좌우로 넓혀 가다 시작 자세로 돌아오고, 안 보이는 색만 고른다.
+TEST(ColorSearch, SweepEndsAtStartAndMissingColors)
+{
+  const auto sw = aris::searchSweepDeg();
+  ASSERT_FALSE(sw.empty());
+  EXPECT_DOUBLE_EQ(sw.back(), 0.0);
+  bool left = false, right = false;
+  for (double d : sw) {
+    EXPECT_LE(std::abs(d), 45.0);
+    left |= d < 0;
+    right |= d > 0;
+  }
+  EXPECT_TRUE(left && right);
+  EXPECT_EQ(aris::missingColors({"yellow", "blue"}, {"blue", "red"}), std::vector<std::string>{"yellow"});
+  EXPECT_EQ(aris::missingColors({"yellow", "", "yellow"}, {}), std::vector<std::string>{"yellow"});
+  EXPECT_TRUE(aris::missingColors({"red"}, {"red"}).empty());
+}
+
+// 쌓기 대답 (2026-11-13): 집을 큐브와 받침 큐브를 둘 다 말한다.
+TEST(VoiceReply, StackSentence)
+{
+  EXPECT_EQ(aris::voiceReply("pick", "yellow", "cube", false, "blue"), "네, 노란색 큐브를 파란색 큐브 위에 올립니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "", "", false, "green"), "네, 고르신 물체를 초록색 큐브 위에 올립니다.");
+}
+
 // 어떤 대답에도 호출어 「아리스」 가 없다 (마이크가 다시 들어도 명령이 되지 않게).
 TEST(VoiceReply, NeverContainsWakeWord)
 {

@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ARIS 명령어 사용법</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: #fbf8f6; --surface: #ffffff; --fg: #231a1a; --muted: #6b5e5c; --line: #e4d9d4;
+  --red: #a3141c; --gold: #9a6f05; --cyan: #0b7c88; --code-bg: #f3ece8; --quote: #fbefe9;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px;
+  padding-block: 32px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+aside.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px);
+  overflow-y: auto; font-size: 13.5px; line-height: 1.5; border-right: 1px solid var(--line); padding-right: 16px; }
+aside.toc .home { display: inline-block; margin-bottom: 12px; color: var(--muted); text-decoration: none; font-size: 13px; }
+aside.toc .toc-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; margin: 6px 0 8px; }
+aside.toc ul { list-style: none; padding: 0; margin: 0; }
+aside.toc li { margin: 5px 0; }
+aside.toc ul ul { padding-left: 12px; border-left: 1px solid var(--line); margin-left: 2px; }
+aside.toc a { color: var(--fg); text-decoration: none; }
+aside.toc a:hover { color: var(--cyan); }
+main { min-width: 0; }
+header.doc { border-bottom: 3px solid var(--red); margin-bottom: 8px; padding-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+main h1 { font-size: clamp(26px, 4.5vw, 36px); line-height: 1.25; margin: 4px 0 6px; text-wrap: balance; }
+main h2 { font-size: 23px; margin: 48px 0 12px; padding-left: 12px; border-left: 5px solid var(--red); text-wrap: balance; }
+main h3 { font-size: 18px; margin: 30px 0 8px; }
+main h4 { font-size: 16px; margin: 22px 0 6px; color: var(--muted); }
+main p, main li { max-width: 72ch; }
+main a { color: var(--cyan); }
+main a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+main ul, main ol { padding-left: 1.4em; }
+main li { margin: 3px 0; }
+main hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: 13px; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote); border-left: 4px solid var(--gold); border-radius: 0 6px 6px 0; }
+blockquote p { margin: 4px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12.5px; letter-spacing: .04em; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+.doclist { display: grid; gap: 12px; margin-top: 18px; }
+.doclist a { display: block; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  text-decoration: none; color: var(--fg); }
+.doclist a:hover { border-color: var(--red); }
+.doclist b { display: block; font-size: 17px; }
+.doclist span { color: var(--muted); font-size: 14px; }
+.foot { margin-top: 48px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  aside.toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="toc" aria-label="목차"><a class="home" href="index.html">← 문서 목록</a><div class="toc-title">목차</div><div class="toc">
+<ul>
+<li><a href="#1">1. 음성 명령</a><ul>
+<li><a href="#11">1.1 명령 목록</a></li>
+<li><a href="#12-aris">1.2 못 할 때 ARIS가 하는 말</a></li>
+<li><a href="#13">1.3 잘 알아듣게 하려면</a></li>
+</ul>
+</li>
+<li><a href="#2-mediapipe">2. 손짓 (실물 위쪽 카메라 · MediaPipe)</a></li>
+<li><a href="#3">3. 화면 조작</a><ul>
+<li><a href="#31">3.1 카메라 화면 클릭</a></li>
+<li><a href="#32">3.2 주요 버튼</a></li>
+<li><a href="#33">3.3 키보드</a></li>
+</ul>
+</li>
+<li><a href="#4">4. 실행 명령 (터미널)</a></li>
+<li><a href="#5">5. 기록(로그) 보는 곳</a></li>
+</ul>
+</div>
+</aside>
+<main>
+<header class="doc"><div class="eyebrow">ARIS3 · docs/ARIS_명령어_사용법.md</div><h1>ARIS 명령어 사용법</h1></header>
+
+<p>ARIS(<code>aris3_gui_cpp</code>)에서 지금 쓸 수 있는 명령을 한곳에 모았습니다. 음성, 손짓, 화면 클릭, 키보드, 실행 옵션 순서입니다. (2026-11-13 기준)</p>
+<blockquote>
+<p><strong>안전 먼저.</strong> 로봇을 움직이는 모든 명령은 화면의 <strong>「조작 허용」 체크가 켜져 있어야</strong> 실행됩니다.
+조작 허용은 음성으로 켜지지 않습니다. 사람이 로봇 주변을 보고 직접 체크합니다(2분 동안 명령이 없으면 잠김).
+음성 「멈춰」는 인식까지 약 1초가 걸립니다. <strong>비상정지를 대신하지 않습니다.</strong></p>
+</blockquote>
+<hr />
+<h2 id="1">1. 음성 명령</h2>
+<p>화면의 <strong>「음성 명령 모드」</strong> 버튼을 켜고, <strong>「아리스」로 부른 뒤</strong> 말합니다.</p>
+<ul>
+<li>한 번에: 「아리스, 노란 큐브 잡아」</li>
+<li>나눠서: 「아리스」 → (ARIS: 「네, 말씀하세요.」) → 8초 안에 「노란 큐브 잡아」</li>
+<li>「아리스」로 시작하지 않는 말은 무시합니다. 옆 사람과의 대화로 로봇이 움직이지 않게 하려는 것입니다.</li>
+<li>음성으로 시작한 명령은 확인창 없이 바로 실행합니다. 조작 허용 검사는 그대로입니다.</li>
+</ul>
+<h3 id="11">1.1 명령 목록</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>말하기 (예)</th>
+<th>하는 일</th>
+<th>ARIS 대답</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>아리스, <strong>노란 큐브 잡아</strong> / 빨간 거 집어줘 / 파란색 들어</td>
+<td>카메라에 보이는 그 색 큐브를 집기</td>
+<td>네, 노란색 큐브를 잡습니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>이거 잡아</strong></td>
+<td>화면에서 고른 큐브 집기</td>
+<td>네, 고르신 물체를 잡습니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>이거 저기로 옮겨</strong></td>
+<td>고른 큐브를 집어 고른 자리에 놓기</td>
+<td>네, 고르신 물체를 집어서 고르신 자리로 옮깁니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>노란 큐브를 파란 큐브 위로 옮겨줘</strong> / 파란 거 위에 빨간 거 올려 / 노란 거 초록 큐브에 쌓아</td>
+<td>앞의 큐브를 집어 받침 큐브 <strong>위에 쌓기</strong> (2중 명령)</td>
+<td>네, 노란색 큐브를 파란색 큐브 위에 올립니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>이거 파란 큐브 위에 올려</strong></td>
+<td>화면에서 고른 큐브를 파란 큐브 위에 쌓기</td>
+<td>네, 고르신 물체를 파란색 큐브 위에 올립니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>저기 놔줘</strong> (들고 있을 때)</td>
+<td>고른 자리에 내려놓기</td>
+<td>네, 고르신 자리에 내려놓겠습니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>내려놔</strong></td>
+<td>지금 위치 바로 아래에 내려놓기</td>
+<td>네, 여기에 내려놓겠습니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>홈으로</strong> / 원위치 / 처음 자세로</td>
+<td>홈 자세 [0, 0, 90, 0, 90, 0]°</td>
+<td>네, 홈 자세로 돌아갑니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>멈춰</strong> / 정지 / 그만 / 스톱</td>
+<td>즉시 정지</td>
+<td>네, 멈춥니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>계속해</strong> / 이어서 해</td>
+<td>「멈춰」로 끊긴 집기를 멈춘 단계부터 이어서</td>
+<td>네, 이어서 하겠습니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>가동</strong> / 깨어나 / 일어나</td>
+<td>접속 후 팔을 위로 일자로 펴기(모든 관절 0°)</td>
+<td>네, 가동합니다.</td>
+</tr>
+<tr>
+<td>아리스, <strong>연결해제</strong> / 연결 끊어</td>
+<td>로봇 접속 끊기 (서보 꺼짐, 브레이크가 팔을 잡음)</td>
+<td>네, 연결을 해제합니다.</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>색: 빨간색, 파란색, 노란색, 초록색. 「빨간 거 말고 파란 거」처럼 말해도 실제로 집을 색(파랑)으로 읽습니다.</li>
+<li>「가동」 자세는 손목이 특이 자세(J5 = 0°)라서, <strong>집기 전에는 「아리스, 홈으로」</strong> 를 먼저 합니다.</li>
+<li><strong>쌓기</strong>: 「위」 바로 앞에 말한 색이 받침입니다. 그래서 「노란 걸 파란 거 위에」와 「파란 거 위에 노란 걸」은 같은 명령입니다. 두 색 모두 카메라에 <strong>하나씩만</strong> 보여야 하고, 놓는 높이는 큐브 한 개만큼 높습니다(실물 4 cm, 시뮬레이션 5 cm, 여유 5 mm). 받침 큐브는 움직이기 직전에 다시 찾고, 안 보이면 하지 않습니다. 실물 모드(시뮬레이션 포함)에서만 됩니다.</li>
+<li>받침은 작업대 위에 놓인 큐브만 됩니다. 이미 쌓인 큐브 위(3층)에 올리거나, 쌓인 큐브를 집는 것은 아직 못 합니다. 위쪽 카메라가 높이를 모르기 때문입니다.</li>
+<li><strong>가려진 색 찾기</strong>: 말한 색(집을 큐브·받침 큐브)이 카메라에 하나도 안 보이면, 로봇 팔에 가렸다고 보고 ARIS가 「파란색 큐브가 안 보여서 팔을 옆으로 움직여 찾아볼게요.」라고 말합니다. 그다음 몸통(J1)을 <strong>천천히(약 7°/s) 10°씩</strong> 시작 자세 기준 +20° → +40° → −20° → −40° → 0° 로 돌리며, 멈출 때마다 카메라를 봅니다.</li>
+<li>찾으면 「찾았어요.」 하고 원래 명령을 그 자리에서 이어서 합니다. 끝까지 못 찾으면 시작 자세로 돌아와 「찾아봤지만 … 보이지 않아요.」라고 말합니다.</li>
+<li>찾는 중에 「아리스, 멈춰」·STOP·Space 를 하면 바로 그만둡니다. 조작 허용이 꺼져도 그만둡니다. 찾는 중에 다른 명령은 받지 않습니다(「지금은 다른 작업을 하고 있어요.」).</li>
+<li>「계속해」는 「멈춰」로 끊긴 경우만 됩니다. 그 사이 다른 동작을 하면 이어 하기는 잊습니다.</li>
+</ul>
+<h3 id="12-aris">1.2 못 할 때 ARIS가 하는 말</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>ARIS 대답</th>
+<th>뜻 · 할 일</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>조작 허용을 먼저 켜 주세요.</td>
+<td>화면의 「조작 허용」을 체크</td>
+</tr>
+<tr>
+<td>아직 움직일 준비가 되지 않았어요.</td>
+<td>접속 중이거나 로봇 상태가 대기가 아님. 상태 표시 확인</td>
+</tr>
+<tr>
+<td>카메라 보정이 아직 없어요.</td>
+<td>실물 집기 패널에서 보정 불러오기</td>
+</tr>
+<tr>
+<td>카메라에 노란색 큐브가 보이지 않아요.</td>
+<td>그 색 큐브가 카메라에 안 보임</td>
+</tr>
+<tr>
+<td>노란색 큐브가 여러 개 있어요. 화면에서 하나를 골라 주세요.</td>
+<td>큐브를 클릭하고 「아리스, 이거 잡아」</td>
+</tr>
+<tr>
+<td>파란색 큐브가 여러 개라 어느 위에 올릴지 모르겠어요.</td>
+<td>쌓기의 받침 색이 여러 개. 하나만 남기기</td>
+</tr>
+<tr>
+<td>올릴 물체와 받침 큐브가 같아요.</td>
+<td>고른 큐브가 받침 큐브임. 다른 큐브를 고르기</td>
+</tr>
+<tr>
+<td>파란색 큐브가 안 보여서 팔을 옆으로 움직여 찾아볼게요.</td>
+<td>팔에 가려진 색을 찾는 중 (멈추려면 「아리스, 멈춰」)</td>
+</tr>
+<tr>
+<td>찾아봤지만 파란색 큐브가 보이지 않아요.</td>
+<td>좌우로 돌려 봐도 없음. 큐브가 카메라 시야에 있는지 확인</td>
+</tr>
+<tr>
+<td>팔을 더 돌릴 수 없어서 찾기를 멈췄어요.</td>
+<td>관절 한계 등으로 J1 이 움직이지 않음</td>
+</tr>
+<tr>
+<td>어떤 물체인지 화면에서 먼저 골라 주세요.</td>
+<td>「이거」라고 했는데 고른 큐브가 없음</td>
+</tr>
+<tr>
+<td>놓을 자리를 화면에서 먼저 골라 주세요.</td>
+<td>빈 곳을 클릭하고 다시</td>
+</tr>
+<tr>
+<td>지금은 다른 작업을 하고 있어요.</td>
+<td>집기 순서 진행 중이거나 확인창이 떠 있음</td>
+</tr>
+<tr>
+<td>잘 못 알아들었어요. 다시 말씀해 주세요.</td>
+<td>명령으로 읽지 못함. 또박또박 다시</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="13">1.3 잘 알아듣게 하려면</h3>
+<ul>
+<li>「아리스」와 명령 사이를 너무 길게 띄우지 않습니다(8초 안).</li>
+<li>말을 마치면 0.8초쯤 조용히 기다립니다. 그때 말 한 마디가 끝난 것으로 봅니다.</li>
+<li>음성 인식이 글자를 조금 틀려도 Claude Haiku가 소리로 고쳐 읽습니다. 예: 「혐의로」→홈으로, 「먹쳐」→멈춰, 「노란색 큐구 자바」→노란 큐브 잡아.</li>
+<li>ARIS가 말하는 중에도 「아리스, 멈춰」는 들립니다.</li>
+<li>인터넷이 끊기면 낱말 표 해석기로 바뀝니다. 이때는 위 표의 낱말 그대로 말하는 것이 좋습니다.</li>
+<li>마이크 없이 시험하려면 음성 패널 입력칸에 문장을 치고 「해석」을 누릅니다(호출어 없어도 됨).</li>
+</ul>
+<hr />
+<h2 id="2-mediapipe">2. 손짓 (실물 위쪽 카메라 · MediaPipe)</h2>
+<p>카메라 아래 작업대 위에서 손으로 합니다. 손짓으로 시작한 동작은 <strong>확인창</strong>을 띄웁니다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>손짓</th>
+<th>하는 일</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>☝ 검지로 가리키고 <strong>1초 멈춤</strong></td>
+<td>그곳을 고름. 큐브 위면 집을 큐브(이거), 빈 곳이면 놓을 자리(저기)</td>
+</tr>
+<tr>
+<td>☝ 가리킴 → ✊ <strong>주먹</strong></td>
+<td>고른 큐브 집기</td>
+</tr>
+<tr>
+<td>☝ 가리킴 → ✋ <strong>손바닥 펼침</strong></td>
+<td>고른 자리에 놓기</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>멈춤 판정: 1초 동안 손끝이 25픽셀 안에 있어야 합니다.</li>
+<li>확인창이 떠 있는 동안 들어온 손짓은 무시합니다.</li>
+</ul>
+<hr />
+<h2 id="3">3. 화면 조작</h2>
+<h3 id="31">3.1 카메라 화면 클릭</h3>
+<ul>
+<li><strong>큐브를 클릭</strong> → 집을 큐브로 고름(이거). 클릭한 곳에서 4 cm 안의 가장 가까운 큐브를 고릅니다.</li>
+<li><strong>빈 곳을 클릭</strong> → 놓을 자리로 고름(저기).</li>
+<li>순서는 상관없습니다. 고른 뒤 버튼이나 「아리스, 이거 저기로 옮겨」로 실행합니다.</li>
+</ul>
+<h3 id="32">3.2 주요 버튼</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>버튼</th>
+<th>하는 일</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connect / Disconnect</td>
+<td>로봇(또는 가상 컨트롤러) 접속 / 끊기</td>
+</tr>
+<tr>
+<td>⌂ Home</td>
+<td>홈 자세</td>
+</tr>
+<tr>
+<td>조작 허용 체크</td>
+<td>움직이는 명령을 허용 (2분 동안 명령이 없으면 잠김)</td>
+</tr>
+<tr>
+<td>큐브 위로 · 집기 · 놓기 · 집어서 옮기기</td>
+<td>고른 큐브·자리로 실물 집기 순서 (매번 확인창)</td>
+</tr>
+<tr>
+<td>복구 홈</td>
+<td>안전 정지 해제 → 서보 켜기 → 자동 모드 → 홈</td>
+</tr>
+<tr>
+<td>손으로 움직이기</td>
+<td>수동 모드. 팔 끝 콕핏의 직접 교시 버튼을 누른 채 팔을 끌어 옮김 (보정 점 찍기)</td>
+</tr>
+<tr>
+<td>수동 조작 (TCP·Joint 조그)</td>
+<td>한 축씩 조금씩 이동</td>
+</tr>
+<tr>
+<td><strong>STOP</strong></td>
+<td>즉시 정지</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="33">3.3 키보드</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>키</th>
+<th>하는 일</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Space</strong> · <strong>Esc</strong></td>
+<td>즉시 정지 (어느 창에 있든). 문장 입력칸에 글을 치는 중이면 Space는 띄어쓰기</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="4">4. 실행 명령 (터미널)</h2>
+<pre><code class="language-bash">source ~/ros2_ws/install/setup.bash
+ros2 run aris3_gui_cpp aris
+</code></pre>
+<ul>
+<li>실물 로봇(110.120.1.66:12345)이 1.5초 안에 응답하면 <strong>실물</strong>, 아니면 <strong>시뮬레이션</strong>으로 시작합니다. 시뮬레이션이면 ARIS가 Gazebo 월드를 직접 띄웁니다.</li>
+<li>창이 열리면 <strong>접속 → 조작 허용 → 홈 자세</strong>까지 저절로 갑니다. 실물이면 접속 전에 확인창을 한 번 띄웁니다.</li>
+<li>Haiku 해석에는 <code>ANTHROPIC_API_KEY</code> 환경 변수가 필요합니다(<code>~/.bashrc</code>에 넣어 둠). 없으면 낱말 표 해석기만 씁니다.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>옵션</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--sim</code></td>
+<td>실물 로봇이 있어도 시뮬레이션으로</td>
+</tr>
+<tr>
+<td><code>--no-auto-home</code></td>
+<td>창이 열려도 자동으로 접속·홈 하지 않음</td>
+</tr>
+<tr>
+<td><code>--no-voice</code></td>
+<td>음성 노드를 띄우지 않음</td>
+</tr>
+<tr>
+<td><code>--no-gesture</code></td>
+<td>손짓 노드를 띄우지 않음</td>
+</tr>
+<tr>
+<td><code>--host 110.120.1.66</code></td>
+<td>실물 컨트롤러 주소</td>
+</tr>
+<tr>
+<td><code>--z-min 50</code></td>
+<td>집기 최저 높이 [mm] (이보다 낮게 내려가지 않음)</td>
+</tr>
+<tr>
+<td><code>--mode sim</code></td>
+<td>예전 MoveIt 시뮬레이션 모드</td>
+</tr>
+<tr>
+<td><code>--mode real --sim --selftest</code></td>
+<td>실물 경로 자체 시험 7단계 (가상 컨트롤러)</td>
+</tr>
+</tbody>
+</table></div>
+<p>ARIS 창을 닫으면 ARIS가 띄운 브리지, 음성, 손짓, 시뮬레이션 월드도 같이 꺼집니다.</p>
+<hr />
+<h2 id="5">5. 기록(로그) 보는 곳</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>무엇</th>
+<th>어디</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ARIS 화면 로그</td>
+<td>화면 아래 LOGS 패널 (「ARIS 로그만」 체크로 거르기)</td>
+</tr>
+<tr>
+<td>음성 (Whisper가 적은 글자, 해석기, ARIS가 한 말)</td>
+<td><code>/tmp/aris_voice.log</code></td>
+</tr>
+<tr>
+<td>실물 브리지</td>
+<td><code>/tmp/aris_real_bridge.log</code></td>
+</tr>
+<tr>
+<td>시뮬레이션 월드</td>
+<td><code>/tmp/aris_sim_world.log</code></td>
+</tr>
+<tr>
+<td>손짓</td>
+<td><code>/tmp/aris_gesture.log</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>말을 자꾸 못 알아들으면 <code>/tmp/aris_voice.log</code>에서 「아리스 혐의로」처럼 Whisper가 실제로 적은 글자를 먼저 보세요.</p>
+<p class="foot">원문: <code>docs/ARIS_명령어_사용법.md</code> · <code>scripts/docs_md_to_html.py</code> 로 만든 페이지 (원문을 고친 뒤 다시 돌리면 갱신)</p>
+</main>
+</div>
+</body>
+</html>

@@ -36,7 +36,7 @@ ros2 launch aris3_real_bridge real_bridge.launch.py mode:=virtual gripper:=servi
 | `/aris3/real/set_hand_guide` | `std_srvs/SetBool` | 손으로 움직이기(수동 모드). 켜면 조작 허용도 잠김 |
 | `/aris3/real/calibration` | `aris3_interfaces/RealCalibration` | 카메라 보정 ① 기억 / ② 기록 / 삭제 / 저장 / 불러오기 |
 | `/aris3/real/motion` | `aris3_interfaces/RealMotion` (액션) | 조그·홈·복구 후 홈·그리퍼. 취소 = 정지 |
-| `/aris3/real/pick_place` | `aris3_interfaces/RealPickPlace` (액션) | 큐브 위로·집기·고른 자리에 놓기·집어서 옮기기·여기 내려놓기. 취소 = 정지 |
+| `/aris3/real/pick_place` | `aris3_interfaces/RealPickPlace` (액션) | 큐브 위로·집기·고른 자리에 놓기·집어서 옮기기·여기 내려놓기·이어서 하기·쌓기(받침 큐브 위, 놓는 높이 + 큐브 한 개 + 여유 3 mm, 받침이 안 보이면 거부. 큐브 높이 = 파라미터 `cube_mm`, 0 이면 실물 40 / 가상 50 mm). 취소 = 정지 |
 
 ## 명령줄 시험
 

@@ -14,7 +14,7 @@
       팔이 카메라 시야를 가리지 않는 자세(홈)여야 한다 - 가상 컨트롤러는 처음에 팔을 위로 세운 자세로 시작한다.
 점의 로봇 좌표는 Gazebo 정답 위치(/aris3/sim/truth_objects)를 쓴다 - 옮긴 큐브가 구르거나 밀릴 수 있어서.
 좌표: 시뮬레이션 로봇 베이스는 world (0, 0, 0.75) 에 회전 없이 놓여 있어 베이스 XY = world XY.
-집는 높이 z = 큐브 중심 높이(탁자 위 25 mm) + 플랜지 -> 집는 점 105 mm (gz_gripper_bridge tcp_offset_m).
+집는 높이 z = 152 mm (이론값 130 = 큐브 중심 25 + 손끝 105 mm 는 Gazebo 손가락이 작업대에 막혀 닿지 못함 - GRASP_Z_MM 참고).
 """
 import argparse
 import math
@@ -31,7 +31,11 @@ from aris3_interfaces.msg import DetectedObjectArray
 REAL_CALIB = os.path.expanduser('~/.config/aris3/real_camera_calib.json')
 SIM_CALIB = os.path.expanduser('~/.config/aris3/sim_camera_calib.json')
 TABLE_Z, CUBE_HALF, TCP_OFFSET = 0.75, 0.025, 0.105
-GRASP_Z_MM = (CUBE_HALF + TCP_OFFSET) * 1000.0         # 130 mm (플랜지 높이, 베이스 기준)
+# 집는 높이 (플랜지, 베이스 기준). 이론값은 (CUBE_HALF + TCP_OFFSET) = 130 mm 이지만, Gazebo 그리퍼는 손가락이
+# 작업대에 막혀 약 22 mm 위에서 멈춘 채 큐브를 쥐었다 -> 큐브가 손에 22 mm 낮게 매달려, 들 때 78 mm 만 올라가고
+# 쌓기에서 받침 큐브를 22 mm 일찍 눌러 밀어냈다 (2026-11-13 실측). 실제로 닿는 높이 152 mm 를 쓴다
+# (이 값으로 집으면 큐브가 손과 같이 100 mm 올라가고, 파랑 위 쌓기가 0.825 m 에 정확히 놓임).
+GRASP_Z_MM = 152.0
 # 큐브를 옮겨 볼 자리 (world = 베이스 XY [m]): 카메라 시야 안, 로봇 앞 작업 영역을 고르게.
 # 시뮬레이션 탁자는 1.4 m x 1.4 m (x, y = -0.70 ~ 0.70) 라 가장자리(0.70)에 놓으면 큐브가 기울거나 떨어진다
 # (2026-11-10 첫 보정 오차 평균 17~54 mm 의 원인) -> 안쪽 0.62 까지만. 홈 자세 팔이 가리는 x < 0.45 근처는 피함.

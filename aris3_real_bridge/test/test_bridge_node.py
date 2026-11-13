@@ -331,6 +331,37 @@ def test_pick_uses_fresh_detection_pixel(env):
     assert 'move 410 -140 180' in link.calls           # 고친 픽셀 (110, 60) 기준으로 하강
 
 
+def test_stack_puts_cube_on_base_cube(env):
+    """쌓기: 노랑을 집어 지금 보이는 파랑 위(놓는 높이 180 + 40 + 5 mm)에 놓는다."""
+    link, bridge, client = env
+    link.move_time = 0.02
+    calibrate(bridge)
+    pub = client.create_publisher(DetectedObjectArray, '/aris3/vision/detections_px', 10)
+    objs = [px_obj('yellow_cube', 'yellow', 100, 50), px_obj('blue_cube', 'blue', 20, 150)]
+    t0 = time.time()
+    while time.time() - bridge.px_stamp > 0.5 and time.time() - t0 < 3:
+        pub.publish(DetectedObjectArray(objects=objs))
+        time.sleep(0.05)
+    arm(client)
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PICK_AND_STACK, target_name='yellow',
+                           target_u=100.0, target_v=50.0, place_u=22.0, place_v=148.0)
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert r.result.success, r.result.message
+    assert 'move 400 -150 180' in link.calls            # 노랑 집기
+    assert 'move 320 -50 225' in link.calls             # 파랑(20, 150) 위 큐브 한 개(40) + 여유 5 mm
+
+
+def test_stack_refused_when_base_not_visible(env):
+    """받침 큐브가 지금 안 보이면 쌓기를 거부한다 (빈 곳 위에서 떨어뜨리지 않게)."""
+    _link, bridge, client = env
+    calibrate(bridge)
+    arm(client)
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PICK_AND_STACK, target_name='yellow',
+                           target_u=100.0, target_v=50.0, place_u=20.0, place_v=150.0)
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert not r.result.success and '받침' in r.result.message
+
+
 def test_state_message_fields(env):
     """상태 토픽에 접속·상태·관절·보정 행렬·조작 허용 남은 시간이 맞게 실린다."""
     link, bridge, client = env

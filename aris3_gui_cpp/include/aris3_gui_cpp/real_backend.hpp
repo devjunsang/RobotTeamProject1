@@ -76,6 +76,7 @@ public:
   // 집기·놓기: 대상·놓을 자리는 영상 픽셀 (브리지가 움직이기 직전에 검출로 다시 고침)
   void pickPlace(uint8_t kind, const std::string & what, const std::string & name,
     const std::optional<Px> & target, const std::optional<Px> & place);
+  bool motionPending();                                 // 단순 이동(조그·홈) 결과를 기다리는 중 (색 탐색용)
   bool pickRunning();                                   // 집기 순서 진행 중 (보내고 결과 기다리는 중 포함)
   std::optional<bool> holding();                        // 마지막 닫기: 잡음 / 빈손 / 모름(nullopt)
   // 보정 (상태 토픽의 행렬로 계산)

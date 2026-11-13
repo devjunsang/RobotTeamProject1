@@ -129,3 +129,37 @@ def test_disconnect_and_power_on():
 def test_stop_beats_everything():
     """「멈춰」 는 다른 명령 낱말과 함께여도 정지."""
     assert parse_command('가동 멈춰')['action'] == 'stop'
+
+
+# 쌓기 (2026-11-13): (문장, 집을 색, 받침 색, 「이거」 인가)
+STACK_CASES = [
+    ("노란색 큐브를 파란색 큐브 위로 옮겨줘", "yellow", "blue", False),
+    ("노란 큐브 파란 큐브 위에 올려줘", "yellow", "blue", False),
+    ("파란 거 위에 빨간 거 올려", "red", "blue", False),        # 받침을 먼저 말함
+    ("빨간 큐브를 노란 큐브에 쌓아줘", "red", "yellow", False),  # 「위」 없음 -> 먼저 말한 색을 집음
+    ("이거 파란 큐브 위에 올려줘", "", "blue", True),            # 화면에서 고른 물체를 파랑 위로
+]
+
+
+@pytest.mark.parametrize("text,color,target,ref_obj", STACK_CASES)
+def test_stack(text, color, target, ref_obj):
+    """「A 를 B 위로」: pick + color=A + target_color=B, 놓을 자리는 화면 클릭이 아니라 받침 큐브."""
+    cmd = parse_command(text)
+    assert (cmd["action"], cmd["color"], cmd["target_color"], cmd["ref_object"]) == ("pick", color, target, ref_obj)
+    assert not cmd["ref_place"]
+    ok, why = validate_command(cmd, KNOWN)
+    assert ok and "STACK" in why
+
+
+def test_not_stack():
+    """색이 하나뿐인 집기·「위」 없는 옮기기·멈춰는 쌓기가 아니다 (target_color 빈 값)."""
+    for text, action in (("노란 큐브 위로 들어줘", "pick"), ("파란 큐브 저기로 옮겨줘", "pick"),
+                         ("멈춰 노란 거 파란 거 위에 올리지 마", "stop"), ("홈으로", "home")):
+        cmd = parse_command(text)
+        assert cmd["action"] == action and cmd["target_color"] == "", text
+
+
+def test_stack_same_color_invalid():
+    """같은 색 위에 쌓으라는 말(받침 = 집을 큐브)은 실행하지 않는다."""
+    cmd = dict(parse_command("노란 큐브 집어줘"), target_color="yellow")
+    assert not validate_command(cmd, KNOWN)[0]
