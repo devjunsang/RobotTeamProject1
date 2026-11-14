@@ -1,0 +1,8 @@
+- [GitHub account](github-account.md) — work only as devjunsang/MasterJun; ignore the demyank88 gh login
+- [ARIS3 final goal](aris3-final-goal.md) — gesture pick&place, MediaPipe required; implemented first on real overhead D455 (aris3_gesture)
+- [Korean progress updates](korean-progress-updates.md) — write mid-task status updates in Korean too
+- [ARIS Qt GUI plan](aris-qt-gui-plan.md) — two GUIs side by side (PyQt aris3_gui + C++ Qt5 ARIS), Iron Man colors, real logic → aris3_real_bridge
+- [e0509_manual ws copy](e0509-manual-ws-copy.md) — ~/ros2_ws/src/e0509_manual is a diverged copy (netcfg), repo etc/ edits don't reach runtime
+- [Comment all code](code-comments.md) — every function/block gets a Korean comment or docstring, tests too
+- [Real robot schedule](real-robot-schedule.md) — no robot until Fri 2026-11-13; verify real path in real-like sim (DRCF emulator)
+- [Commit & push to branch](work-on-main.md) — new branch + commit + push per task (never main); others' uncommitted edits → separate wip/session-* branch first
