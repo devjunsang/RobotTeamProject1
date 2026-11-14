@@ -122,6 +122,8 @@ private:
   void pickAndPlace(const QString & heard = QString());
   // 쌓기 (2026-11-13): 고른 큐브(pick_px_)를 base_px 의 받침 큐브 위에 올린다 (브리지 PICK_AND_STACK)
   void stackRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name);
+  // 올려놓기 (2026-11-14): 지금 들고 있는 큐브를 받침 큐브 위에 놓는다 (「빨간 큐브 위로 올려놔」)
+  void placeOnRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name);
   // allow_search: 말한 색이 안 보이면 팔을 좌우로 돌려 찾는다 (찾은 뒤 다시 부를 때는 false - 무한 반복 방지)
   void realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool allow_search = true);
   void searchTick();                                    // 색 탐색 진행 (refreshReal 에서 주기마다)
@@ -160,6 +162,7 @@ private:
   QLabel * lbl_voice_state_{nullptr}, * lbl_heard_{nullptr}, * lbl_parsed_{nullptr};
   QPushButton * btn_talk_{nullptr}, * btn_voice_run_{nullptr};
   QLineEdit * txt_cmd_{nullptr};
+  QLineEdit * txt_hold_{nullptr};                     // 그리퍼 패널: 큐브를 잡고 있는지 표시 (읽기 전용, 2026-11-14)
   QTimer timer_, cam_timer_;
 
   // ---- M2: 수동 조작·화면 선택·작업 공간
@@ -190,6 +193,8 @@ private:
   struct ColorSearch {
     aris3_interfaces::msg::VoiceCommand v;              // 찾은 뒤 실행할 원래 명령
     std::vector<std::string> colors;                    // 찾는 색
+    // 탐색 (2026-11-14, 「아리스 탐색」): 0 이 아니면 colors 대신 서로 다른 색이 이만큼 보일 때까지 찾는다
+    std::size_t want_distinct = 0;
     std::size_t step = 0;                               // 다음 searchSweepDeg() 목표 번호
     std::optional<double> start_j1;
     std::optional<double> sent_from;                    // 마지막 조그를 보낼 때의 J1 (시작 기준) - 안 움직였으면 그만                     // 탐색 시작 때 J1 [deg] (첫 주기에 상태에서 읽음)

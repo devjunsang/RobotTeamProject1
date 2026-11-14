@@ -83,6 +83,8 @@ public:
   bool calibReady();
   std::optional<Px> toRobot(double u, double v);        // 픽셀 -> 로봇 (x, y) [mm]
   std::optional<double> graspZ();
+  // 카메라 보정 3x3 (픽셀 -> 로봇 mm, 행 우선). 보정이 없으면 nullopt (2026-11-14, 닿는 범위 경계선을 그릴 때 씀)
+  std::optional<std::array<double, 9>> calibMatrix();
   QString calibSummary();
   std::optional<Px> calibPendingPx();                   // 보정 ① 에서 기억한 픽셀
 

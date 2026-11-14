@@ -16,24 +16,41 @@ GUI(aris3_gui PyQt, aris3_gui_cpp ARIS)는 로봇에 직접 붙지 않고 이 �
 
 조작 허용(armed): GUI 의 「조작 허용」 과 별개로 이 노드도 막는다. armed 가 아니면 이동·그리퍼·집기 요청을
 거부하고, arm_timeout_s 동안 명령이 없으면 스스로 잠근다. 정지는 armed 와 상관없이 언제나 동작한다.
+
+그리퍼 각도 맞추기 (2026-11-13, 파라미터 align_yaw, 기본 켬): 색 검출이 pose.orientation 에 담은 큐브 면 방향(영상)을
+카메라 보정으로 로봇 각도로 바꿔, 집을 때는 그 각도로, 놓을 때는 팔 방향(베이스 -> 놓을 자리)과 평행·수직으로,
+쌓을 때는 받침 큐브와 같은 각도로 J6 를 돌린다 (real_pick.PickSequence._align).
+
+쌓인 큐브 위치 (2026-11-13): 로봇 좌표는 검출의 grasp_u, grasp_v (원근 보정 픽셀) 로 계산한다 - 0 이면 pose.position.
+큐브 중심 맞추기 (2026-11-13, 파라미터 center_grasp, 기본 켬): 접근 높이에 멈춘 뒤 새로 찍힌 검출 여러 장의 중앙값으로
+큐브 중심을 다시 재서 그리퍼를 그 바로 위로 옮기고 내려간다 (PickSequence._center). 넓이가 처음과 크게 다르면
+(그리퍼에 일부 가려짐) 그 장은 쓰지 않는다.
 """
 import math
 import os
+import shutil
 import threading
 import time
+
+import cv2
+import numpy as np
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rcl_interfaces.msg import ParameterDescriptor
+from sensor_msgs.msg import CameraInfo, CompressedImage
 from std_srvs.srv import SetBool, Trigger
 
 from aris3_interfaces.action import RealMotion, RealPickPlace
 from aris3_interfaces.msg import DetectedObjectArray, RealRobotState
 from aris3_interfaces.srv import RealCalibration
-from aris3_real_bridge.real_pick import CALIB_PATH, STACK_MM, STACK_SIM_MM, PickSequence, PixelCalibration
+from aris3_real_bridge.real_pick import (CALIB_PATH, MAX_LEVEL, STACK_MM, STACK_SIM_MM, PickSequence, PixelCalibration,
+                                         radial_yaw_deg, wrap90)
+from aris3_real_bridge import marker_calib as MC
 from aris3_real_bridge.virtual import ServiceGripper, make_virtual_bringup
 
 # 가상 모드(시뮬레이션) 보정 파일 - 실물 보정(CALIB_PATH)과 따로 둔다
@@ -44,10 +61,30 @@ MAX_CART_VEL = 100.0          # mm/s
 GRIP_CLOSE_POS, GRIP_CURRENT_MA, GRIP_VEL = 740, 300, 1500
 REFRESH_PX = 40.0             # 집기 직전: 받은 픽셀에서 이 거리 안의 검출로 큐브 위치를 고친다
 PX_FRESH_S = 1.0              # 이보다 오래된 검출은 쓰지 않는다 (보정 ① 은 2 s)
+MARKER_WAIT_S = 1.5           # 마커 보정 ①: 새 영상을 기다리는 최대 시간
+MARKER_FRAMES = 5             # 마커 보정 ①: 모으는 장 수 (중앙값)
+MARKER_BLOCK_TOL_MM = 5.0     # 마커 블록 높이가 큐브와 이 안으로 같으면 높이를 고치지 않는다
+CENTER_SETTLE_S = 0.3        # 중심 맞추기: 멈춘 뒤 이만큼 지난 다음에 받은 검출만 (영상·검출 지연)
+CENTER_WAIT_S = 2.0           # 중심 맞추기: 검출을 기다리는 최대 시간
+CENTER_SAMPLES = 3            # 중심 맞추기: 이만큼 모아 중앙값 (한 장 흔들림 줄이기)
+CENTER_AREA_TOL = 0.3         # 중심 맞추기: 넓이가 처음보다 이 비율 넘게 다르면(일부 가려짐) 그 장은 버림
 STACK_MIN_SEP_MM = 30.0       # 쌓기: 집을 큐브와 받침 큐브가 이보다 가까우면 같은 큐브로 보고 거부 (큐브 40 mm)
 STANDBY, MOVING = 1, 2
 # launch 에서 z_min_mm:=77 처럼 정수를 줘도 받도록 (기본은 타입 고정이라 노드가 죽었다), 읽을 때 float()/int()
 ANY_TYPE = ParameterDescriptor(dynamic_typing=True)
+
+
+def grasp_px(o):
+    """검출 o 의 집기용 픽셀: 원근 보정 픽셀(grasp_u, grasp_v), 채우지 않았으면(0, 0) 화면 위치 pose.position."""
+    if o.grasp_u or o.grasp_v:
+        return float(o.grasp_u), float(o.grasp_v)
+    return float(o.pose.pose.position.x), float(o.pose.pose.position.y)
+
+
+def px_yaw_deg(o):
+    """검출의 pose.orientation (영상 픽셀 좌표계 z 축 회전) -> 큐브 면 방향 [deg] (색 검출 스크립트가 담음)."""
+    q = o.pose.pose.orientation
+    return math.degrees(2.0 * math.atan2(q.z, q.w))
 
 
 def nearest_px(objects, u, v, max_dist=None):
@@ -71,6 +108,17 @@ def cart_vel(pct):
     return max(10.0, MAX_CART_VEL * float(pct) / 100.0)
 
 
+# 결과 문장에 넣는 표시: 화면(aris3_gui_cpp)이 이 말을 보고 「팔이 닿지 않아요」 라고 말한다 (2026-11-14)
+UNREACHABLE = '닿지 않는 위치'
+TOO_CLOSE = '너무 가까운 위치'      # 베이스에 너무 가까워 관절 한계에 걸리는 자리 (화면이 「너무 가까워서 …」 라고 말한다)
+
+
+def controller_unreachable(lines):
+    """로봇 로그 줄들에 컨트롤러의 도달 불가 경고가 있는가: 「... is NOT REACHABLE」 (너무 멀다) 또는
+    「Joint Axis N angle beyond max/min limit」 (관절 한계 - 베이스에 너무 가까울 때)."""
+    return any('NOT REACHABLE' in ln or ('Joint Axis' in ln and 'beyond' in ln and 'limit' in ln) for ln in lines)
+
+
 def hold_code(holding, cls=RealRobotState):
     """PickSequence.holding(True/False/None) -> 메시지의 HOLD_YES / HOLD_NO / HOLD_UNKNOWN 숫자."""
     return cls.HOLD_UNKNOWN if holding is None else (cls.HOLD_YES if holding else cls.HOLD_NO)
@@ -86,9 +134,25 @@ class RealBridge(Node):
         super().__init__('aris3_real_bridge')
         self.declare_parameter('arm_timeout_s', 120.0, ANY_TYPE)
         self.declare_parameter('state_rate_hz', 10.0, ANY_TYPE)
+        # 그리퍼 각도 맞추기 (집기: 큐브 면, 놓기: 팔 방향, 쌓기: 받침 큐브). false = 예전처럼 지금 각도 그대로
+        self.declare_parameter('align_yaw', True, ANY_TYPE)
+        # 큐브 중심 맞추기 (접근 높이에서 큐브를 다시 재서 그 바로 위로). false = 처음 좌표 그대로
+        self.declare_parameter('center_grasp', True, ANY_TYPE)
+        # 탁자 블록 마커 보정 (2026-11-14): 블록 윗면에 붙인 ArUco 4X4_50 마커 ID (보정 ① 이 마커 중심을 씀)
+        self.declare_parameter('marker_id', 0, ANY_TYPE)
+        # 닿는 거리 (2026-11-14): 베이스에서 이보다 먼 큐브·놓을 자리는 출발 전에 거부한다. 그리퍼를 아래로 향한 채
+        # 접근 높이(집는 높이 + 100 mm)로 가야 하는데, 실물에서 686 mm 는 갔고 716 mm 는 컨트롤러가 NOT REACHABLE 로 거부했다
+        self.declare_parameter('reach_max_mm', 700.0, ANY_TYPE)
+        # 가까운 쪽 한계 (2026-11-14): 베이스에 너무 가까우면 집는 높이로 내려가다 3번 관절이 한계(135°)를 넘는다.
+        # 실물에서 약 210 mm 는 하강 중 「Joint Axis 3 angle beyond max limit」 로 멈췄고 428 mm 는 됐다.
+        # 그때 관절 각도로 어림하면 집는 높이에서 한계가 약 260 mm - 여유를 두어 300 mm
+        self.declare_parameter('reach_min_mm', 300.0, ANY_TYPE)
         self.link, self.mgr, self.conn = link, mgr, conn
         self.state_ko = state_ko or {}
         self.arm_timeout = float(self.get_parameter('arm_timeout_s').value)
+        # 'false' 문자열로 와도 끄기 (bool('false') 는 True 라서)
+        self.align_yaw = str(self.get_parameter('align_yaw').value).strip().lower() in ('true', '1', 'yes')
+        self.center_grasp = str(self.get_parameter('center_grasp').value).strip().lower() in ('true', '1', 'yes')
 
         # 보정 파일: 실물과 가상 모드는 카메라가 달라 파일을 나눈다 (가상 시험이 실물 보정을 덮어쓰지 않게)
         self.calib_path = calib_path or CALIB_PATH
@@ -108,6 +172,14 @@ class RealBridge(Node):
         self.last_cmd = 0.0
         self.active_goal = False            # 이동 액션 하나만 (motion, pick_place 공통)
         self.px_objects, self.px_stamp = [], 0.0
+        # 마커 보정 ① 용 카메라 (마지막 장만 두고 쓸 때 푼다 - 30 Hz 를 늘 풀지 않게)
+        self.cam_img, self.cam_img_t = None, 0.0
+        self.cam_depth, self.cam_depth_t = None, 0.0
+        self.cam_K = None
+        self.calib_mark = None              # 보정 ① 이 마커였으면 {'cam': 3D 점, 'block_mm': 블록 높이} (② 에서 씀)
+        # 블록 자동 보정점 (2026-11-14, AUTO_RECORD): 지금 보정과 따로 모으고 「보정 저장」 때 새 보정으로 바꾼다
+        self.auto_calib = PixelCalibration()
+        self.auto_grasp = None              # 진행 중인 자동 보정점의 블록 중심 TCP (x, y, z)
 
         cb = ReentrantCallbackGroup()
         cb_stop = MutuallyExclusiveCallbackGroup()   # 다른 콜백이 모두 바빠도 정지는 따로 처리
@@ -115,6 +187,14 @@ class RealBridge(Node):
         self.pub_state = self.create_publisher(RealRobotState, p + 'state', 10)
         self.create_subscription(DetectedObjectArray, '/aris3/vision/detections_px', self._on_px, 10,
                                  callback_group=cb)
+        # 위쪽 카메라 (scripts/aris3_realsense_pub.py) - 보정 ① 마커를 잴 때만 푼다
+        # 영상·깊이는 카메라 노드가 BEST_EFFORT 로 보낸다 -> 센서용 QoS 로 받아야 연결된다 (RELIABLE 구독은 한 장도 못 받음)
+        cam = '/aris3/overhead_camera/'
+        self.create_subscription(CompressedImage, cam + 'image/compressed', self._on_cam_img, qos_profile_sensor_data,
+                                 callback_group=cb)
+        self.create_subscription(CompressedImage, cam + 'depth/compressed', self._on_cam_depth, qos_profile_sensor_data,
+                                 callback_group=cb)
+        self.create_subscription(CameraInfo, cam + 'camera_info', self._on_cam_info, 2, callback_group=cb)
         self.create_service(Trigger, p + 'stop', self._srv_stop, callback_group=cb_stop)
         self.create_service(Trigger, p + 'connect', self._srv_connect, callback_group=cb)
         self.create_service(Trigger, p + 'disconnect', self._srv_disconnect, callback_group=cb)
@@ -155,6 +235,127 @@ class RealBridge(Node):
     def _on_px(self, msg):
         """색 검출(영상 픽셀) 수신: 마지막 목록과 받은 시각을 저장 (집기 직전·보정 ① 에서 다시 읽음)."""
         self.px_objects, self.px_stamp = list(msg.objects), time.time()
+
+    def _on_cam_img(self, msg):
+        """컬러 영상 수신: 마지막 장과 받은 시각만 둔다."""
+        self.cam_img, self.cam_img_t = msg, time.time()
+
+    def _on_cam_depth(self, msg):
+        """깊이 영상 수신: 마지막 장과 받은 시각만 둔다."""
+        self.cam_depth, self.cam_depth_t = msg, time.time()
+
+    def _on_cam_info(self, msg):
+        """카메라 내부 파라미터 (fx, fy, cx, cy)."""
+        self.cam_K = (msg.k[0], msg.k[4], msg.k[2], msg.k[5])
+
+    # ================================================================== 탁자 블록 마커 보정 (2026-11-14)
+    def _measure_marker(self, near=None):
+        """보정 ①: 새 영상 여러 장에서 블록 마커를 잰다. 돌려줌 dict(px=(u, v) 큐브 높이 픽셀, raw=마커 중심 픽셀,
+        cam=마커 3D 점 또는 None, block_mm=블록 높이 또는 None, frames, side_px) 또는 못 찾은 이유(str).
+
+        near (u, v): 마커가 여럿이면 그 픽셀에 가장 가까운 것 (없으면 가장 큰 것).
+        블록 높이가 큐브(stack_mm)와 MARKER_BLOCK_TOL_MM 넘게 다르면 픽셀을 큐브 높이로 옮긴다 (to_cube_height).
+        """
+        if self.cam_img is None or time.time() - self.cam_img_t > 1.0:
+            return '위쪽 카메라 영상이 오지 않음'
+        mid = int(self.get_parameter('marker_id').value)
+        t0 = time.time()
+        raws, cams, blocks, angs, last, side = [], [], [], [], 0.0, 0.0
+        while time.time() - t0 < MARKER_WAIT_S and len(raws) < MARKER_FRAMES:
+            img, img_t = self.cam_img, self.cam_img_t
+            if img is None or img_t == last:
+                time.sleep(0.02)
+                continue
+            last = img_t
+            gray = cv2.imdecode(np.frombuffer(bytes(img.data), np.uint8), cv2.IMREAD_GRAYSCALE)
+            m = MC.pick_marker(MC.find_markers(gray, mid), near) if gray is not None else None
+            if m is None:
+                continue
+            raws.append(m[0])
+            angs.append(MC.marker_angle(m[1]))
+            side = m[2]
+            dd = MC.decode_depth(self.cam_depth) if self.cam_depth is not None else None
+            if dd is None or self.cam_K is None or time.time() - self.cam_depth_t > 1.0:
+                continue
+            pc = MC.marker_cam_point(dd[0], dd[1], m[1], m[0], self.cam_K)
+            if pc is None:
+                continue
+            cams.append(pc)
+            r = MC.to_cube_height(pc, MC.table_around(dd[0], dd[1], m[0], m[2], self.cam_K), self.picker.stack_mm,
+                                  self.cam_K)
+            if r is not None:
+                blocks.append(r)
+        if not raws:
+            return f'카메라에 마커(4X4_50, ID {mid})가 보이지 않음'
+        raw = tuple(float(v) for v in np.median(np.array(raws), axis=0))
+        out = {'raw': raw, 'px': raw, 'cam': None, 'block_mm': None, 'frames': len(raws), 'side_px': side,
+               'ang': MC.mean_angle90(angs)}
+        if cams:
+            out['cam'] = np.median(np.array(cams), axis=0)
+        if blocks:
+            hb = float(np.median([b[0] for b in blocks]))
+            out['block_mm'] = hb
+            if abs(hb - self.picker.stack_mm) > MARKER_BLOCK_TOL_MM:
+                out['px'] = tuple(float(v) for v in np.median(np.array([b[1] for b in blocks]), axis=0))
+        return out
+
+    def _auto_start(self):
+        """AUTO_RECORD: 블록 마커를 재서 지금 보정으로 위치·각도 계산 -> 잡아서 가운데 맞추기 순서 시작. (성공, 문장)."""
+        why = self.why_blocked()
+        if why:
+            return False, f'블록 자동 기록 거부: {why}'
+        if not self.calib.ready():
+            return False, '블록 자동 기록 거부: 지금 보정이 없음 (블록을 찾아갈 때 씀 - 손으로 4 점 먼저)'
+        if self.picker.holding:
+            return False, '블록 자동 기록 거부: 그리퍼가 무언가를 잡고 있음 (먼저 내려놓기)'
+        mk = self._measure_marker()
+        if not isinstance(mk, dict):
+            return False, f'블록 자동 기록 거부: {mk}'
+        u, v = mk['px']
+        x, y = self.calib.to_robot(u, v)
+        if not 150.0 <= math.hypot(x, y) <= 750.0:
+            return False, f'블록 자동 기록 거부: 블록이 로봇 도달 범위 밖 ({x:.0f}, {y:.0f}) mm'
+        yaw = self.calib.angle_to_robot(u, v, mk['ang'])
+        self.auto_grasp = None
+
+        def record():
+            """두 번 닫아 가운데로 맞춘 그때의 TCP = 블록 중심."""
+            p = self.link.posx
+            if p is None:
+                self.picker.log('블록 중심 기록 실패: TCP 를 읽지 못함')
+                return False
+            self.auto_grasp = (float(p[0]), float(p[1]), float(p[2]))
+            self.picker.log(f'블록 중심 TCP ({p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}) mm '
+                            f'(처음 계산 ({x:.1f}, {y:.1f}) 에서 {math.hypot(p[0] - x, p[1] - y):.1f} mm)')
+            return True
+
+        def measure():
+            """홈에서 마커를 다시 재서 (블록은 가운데 맞추며 조금 밀렸을 수 있음) 자동 보정점 추가."""
+            m2 = self._measure_marker()
+            if not isinstance(m2, dict) or self.auto_grasp is None:
+                self.picker.log(f'블록 자동 기록 실패: 마커를 다시 재지 못함 ({m2}) - 블록이 가려졌는지 확인')
+                return False
+            gx, gy, gz = self.auto_grasp
+            a = self.auto_calib
+            a.add(m2['px'][0], m2['px'][1], gx, gy, gz, label='auto', cam=m2['cam'])
+            self.picker.log(f'블록 자동 보정점 {len(a.points)}: 픽셀 ({m2["px"][0]:.1f}, {m2["px"][1]:.1f}) -> '
+                            f'TCP ({gx:.1f}, {gy:.1f}, {gz:.1f}) mm  |  {self._auto_summary()}')
+            return True
+        if not self.picker.block_calibration_point(x, y, self.calib.grasp_z, yaw, record, measure):
+            return False, '블록 자동 기록 거부: 다른 순서가 진행 중'
+        self._touch()
+        return True, (f'블록 자동 기록 시작: 마커 ({mk["raw"][0]:.1f}, {mk["raw"][1]:.1f}) -> 지금 보정으로 '
+                      f'({x:.0f}, {y:.0f}) mm, 각도 {yaw:.0f}°. 잡아서 가운데 맞춘 뒤 홈에서 마커를 다시 잽니다')
+
+    def _auto_summary(self):
+        """자동 보정점 모음 요약 (저장 전)."""
+        a = self.auto_calib
+        n = len(a.points)
+        if n == 0:
+            return ''
+        if not a.ready():
+            return f'자동 보정점 {n}개 (4개 이상이면 「보정 저장」 으로 새 보정)'
+        return f'자동 보정점 (저장 전): {a.summary()}'
 
     def _fresh_px(self, max_age):
         """max_age 초 안에 받은 검출만 돌려준다. 검출 노드가 꺼졌으면 빈 목록 (오래된 위치로 움직이지 않게)."""
@@ -222,11 +423,26 @@ class RealBridge(Node):
         c = self.calib
         ok, msg = True, ''
         if req.command == C.REMEMBER:
-            near = nearest_px(self._fresh_px(2.0), req.u, req.v)
-            if near is None:
-                ok, msg = False, '보정 ①: 지금 카메라에 큐브가 보이지 않음 (가려지지 않았는지 확인)'
+            # 탁자 블록 마커가 보이면 마커 중심 (2026-11-14), 아니면 예전처럼 (u, v) 가까운 색 큐브
+            mk = self._measure_marker((req.u, req.v) if (req.u or req.v) else None)
+            # 큐브로 기억할 때는 고른 픽셀이 있어야 하고 그 가까이(60 px) 큐브만 (아무 큐브나 고르지 않게)
+            given = bool(req.u or req.v)
+            near = (None if isinstance(mk, dict) or not given
+                    else nearest_px(self._fresh_px(2.0), req.u, req.v, 60.0))
+            if isinstance(mk, dict):
+                self.calib_px, self.calib_mark = mk['px'], mk
+                hb = mk['block_mm']
+                msg = (f'보정 ①: 마커 픽셀 ({mk["raw"][0]:.1f}, {mk["raw"][1]:.1f}) 기억 ({mk["frames"]}장, 한 변 '
+                       f'{mk["side_px"]:.0f} px' + (f', 블록 높이 {hb:.0f} mm' if hb is not None else ', 깊이 없음') + ')')
+                if mk['px'] != mk['raw']:
+                    msg += (f' -> 큐브 높이({self.picker.stack_mm:.0f} mm) 픽셀 ({mk["px"][0]:.1f}, {mk["px"][1]:.1f})'
+                            f' 로 고침')
+                msg += ' → 조그로 그리퍼를 그 블록을 집는 자세까지 내린 뒤 ②'
+            elif near is None:
+                ok, msg = False, (f'보정 ①: {mk}' + (' - 고른 자리 가까이 큐브도 보이지 않음' if given else
+                                                    ' (큐브로 하려면 카메라 화면에서 큐브를 먼저 클릭)'))
             else:
-                self.calib_px = (near.pose.pose.position.x, near.pose.pose.position.y)
+                self.calib_px, self.calib_mark = (near.pose.pose.position.x, near.pose.pose.position.y), None
                 msg = (f'보정 ①: {near.id or near.color} 픽셀 ({self.calib_px[0]:.1f}, {self.calib_px[1]:.1f}) 기억 '
                        '→ 조그로 그리퍼를 그 큐브를 집는 자세까지 내린 뒤 ②')
         elif req.command == C.RECORD:
@@ -236,17 +452,46 @@ class RealBridge(Node):
             elif p is None or not self.link.joints_fresh():
                 ok, msg = False, '보정 ②: 로봇 TCP 좌표를 읽지 못함 (접속 확인)'
             else:
-                c.add(self.calib_px[0], self.calib_px[1], p[0], p[1], p[2], label=req.label)
+                mk, z, note = self.calib_mark, p[2], ''
+                hb = mk['block_mm'] if mk else None
+                if hb is not None and abs(hb - self.picker.stack_mm) > MARKER_BLOCK_TOL_MM:
+                    z = p[2] - (mk['block_mm'] - self.picker.stack_mm)       # 큐브 높이에서 집는 TCP z
+                    note = f' (블록 {mk["block_mm"]:.0f} mm -> 큐브 높이로 Z {z:.1f})'
+                cam = mk['cam'] if mk else None
+                c.add(self.calib_px[0], self.calib_px[1], p[0], p[1], z,
+                      label=req.label or ('marker' if mk else ''), cam=cam)
                 msg = (f'보정 ②: 점 {len(c.points)} 픽셀 ({self.calib_px[0]:.1f}, {self.calib_px[1]:.1f}) '
-                       f'-> TCP ({p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}) mm  |  {c.summary()}')
-                self.calib_px = None
+                       f'-> TCP ({p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}) mm{note}  |  {c.summary()}')
+                self.calib_px, self.calib_mark = None, None
+        elif req.command == C.AUTO_RECORD:
+            ok, msg = self._auto_start()
         elif req.command == C.REMOVE_LAST:
-            c.remove_last()
-            msg = f'마지막 점 삭제  |  {c.summary()}'
+            if self.auto_calib.points:                  # 자동 보정점을 모으는 중이면 그쪽에서 지움
+                self.auto_calib.remove_last()
+                msg = f'마지막 자동 보정점 삭제  |  {self._auto_summary() or "자동 보정점 0개"}'
+            else:
+                c.remove_last()
+                msg = f'마지막 점 삭제  |  {c.summary()}'
         elif req.command == C.CLEAR:
             c.clear()
-            self.calib_px = None
+            self.auto_calib.clear()
+            self.calib_px, self.calib_mark = None, None
             msg = '보정 점 모두 삭제'
+        elif req.command == C.SAVE and self.auto_calib.points:
+            # 자동 보정점이 있으면 그것으로 새 보정 (예전 파일은 백업)
+            a = self.auto_calib
+            if not a.ready():
+                ok, msg = False, f'보정 저장 거부: 자동 보정점 {len(a.points)}개 (4개 이상 필요)'
+            else:
+                bak = ''
+                if os.path.exists(self.calib_path):
+                    bak = self.calib_path + time.strftime('.bak-%Y%m%d-%H%M%S')
+                    shutil.copy2(self.calib_path, bak)
+                a.save(self.calib_path)
+                c.load(self.calib_path)
+                self.auto_calib = PixelCalibration()
+                msg = (f'보정 저장 (블록 자동 보정점으로 새 보정): {self.calib_path}' +
+                       (f', 예전 파일 {bak}' if bak else '') + f'  |  {c.summary()}')
         elif req.command == C.SAVE:
             if not c.points:
                 ok, msg = False, '보정 저장: 기록한 점이 없음'
@@ -386,17 +631,77 @@ class RealBridge(Node):
         self._touch()
         res.success = bool(L.last_ok) and not goal_handle.is_cancel_requested
         res.message = self._last_link_log(what)
+        if res.success and g.kind == G.GRIPPER_OPEN:
+            self.picker.holding = False         # 열었으면 빈손 (상태 토픽·「저기 놔줘」 판단이 맞게, 2026-11-14)
+        elif res.success and g.kind == G.GRIPPER_CLOSE:
+            self.picker.update_hold()           # 닫기 버튼으로 잡았는지도 판단 (화면의 「잡은 상태」 표시용, 2026-11-14)
         return self._finish(goal_handle, res)
 
     # ================================================================== 액션: 집기·놓기
+    def _cube_yaw(self, o):
+        """검출 o 의 큐브 면 방향 -> 로봇 베이스 각도 [deg, 90° 대칭]. 각도 맞추기를 껐거나 계산할 수 없으면 None."""
+        if not self.align_yaw or o is None:
+            return None
+        return self.calib.angle_to_robot(o.pose.pose.position.x, o.pose.pose.position.y, px_yaw_deg(o))
+
+    def _place_yaw(self, x, y):
+        """놓는 각도: 큐브 면이 팔 방향(베이스 -> (x, y))과 평행·수직. 각도 맞추기를 껐으면 None."""
+        return wrap90(radial_yaw_deg(x, y)) if self.align_yaw else None
+
+    def _locator(self, near):
+        """중심 맞추기에 줄 함수: 멈춘 뒤 새로 받은 검출 CENTER_SAMPLES 장의 집기용 픽셀 중앙값 -> 로봇 (x, y).
+
+        near: 처음 고른 검출 (위치·넓이 기준). 없거나 중심 맞추기를 껐으면 None (단계 없음).
+        그리퍼에 일부 가려져 넓이가 크게 다른 장은 버린다 - 가려진 쪽만큼 중심이 밀려 보이므로.
+        """
+        if not self.center_grasp or near is None:
+            return None
+        u0, v0, area0 = near.pose.pose.position.x, near.pose.pose.position.y, float(near.size_px)
+
+        def locate():
+            """작업 스레드에서 부름: 새 검출을 기다려 모은 뒤 중앙값. 못 모으면 이유(str)."""
+            since = time.time() + CENTER_SETTLE_S
+            deadline = since + CENTER_WAIT_S
+            last, us, vs, hidden = 0.0, [], [], 0
+            while time.time() < deadline and len(us) < CENTER_SAMPLES:
+                stamp, objs = self.px_stamp, self.px_objects
+                if stamp >= since and stamp != last:
+                    last = stamp
+                    o = nearest_px(objs, u0, v0, REFRESH_PX)
+                    if o is not None and area0 > 0 and abs(o.size_px / area0 - 1.0) > CENTER_AREA_TOL:
+                        hidden += 1
+                    elif o is not None:
+                        gu, gv = grasp_px(o)
+                        us.append(gu)
+                        vs.append(gv)
+                time.sleep(0.03)
+            if len(us) < CENTER_SAMPLES:
+                return ('큐브가 잘 보이지 않음' + (' (그리퍼에 일부 가려짐)' if hidden else '')
+                        + f' - {len(us)}/{CENTER_SAMPLES} 장')
+            us.sort()
+            vs.sort()
+            return self.calib.to_robot(us[len(us) // 2], vs[len(vs) // 2])
+        return locate
+
     def _target_xy(self, name, u, v, notes):
-        """집기 직전: 받은 픽셀 가까이의 지금 검출로 큐브 위치를 고친 뒤 로봇 (x, y)."""
+        """집기 직전: 받은 픽셀 가까이의 지금 검출로 큐브 위치를 고친 뒤 로봇 (x, y, 층, 각도).
+
+        층은 깊이로 잰 값 (2026-11-13). 깊이가 없거나 안 보이면 0 (모름) -> 1층 높이로 집는다 (예전과 같음).
+        각도는 큐브 면 방향 [deg] (2026-11-13). 안 보이거나 각도 맞추기를 껐으면 None -> 지금 각도로 집는다.
+        마지막은 중심 맞추기 함수 (_locator, 안 보이거나 껐으면 None). 쌓인 큐브는 원근 보정 픽셀(grasp_px)로 계산.
+        """
         near = nearest_px(self._fresh_px(PX_FRESH_S), u, v, REFRESH_PX)
+        level = 0
         if near is not None:
-            u, v = near.pose.pose.position.x, near.pose.pose.position.y
+            u, v = grasp_px(near)                   # 쌓인 큐브는 원근 보정 픽셀 (2026-11-13)
+            level = int(near.level)
+            if level == 0:
+                notes.append(f'{name or "큐브"} 의 층을 모름 (깊이 없음) - 1층 높이로 집음')
         else:
-            notes.append(f'{name or "큐브"} 가 지금 보이지 않음 - 받은 픽셀 사용')
-        return self.calib.to_robot(u, v)
+            notes.append(f'{name or "큐브"} 가 지금 보이지 않음 - 받은 픽셀 사용' +
+                         (', 각도는 맞추지 않음' if self.align_yaw else ''))
+        x, y = self.calib.to_robot(u, v)
+        return x, y, level, self._cube_yaw(near), self._locator(near)
 
     def _stack_base_xy(self, g, x, y):
         """쌓기의 받침 큐브 로봇 (x, y), 또는 거부 이유(str).
@@ -407,10 +712,16 @@ class RealBridge(Node):
         near = nearest_px(self._fresh_px(PX_FRESH_S), g.place_u, g.place_v, REFRESH_PX)
         if near is None:
             return '받침 큐브가 지금 카메라에 보이지 않음'
-        bx, by = self.calib.to_robot(near.pose.pose.position.x, near.pose.pose.position.y)
-        if math.hypot(bx - x, by - y) < STACK_MIN_SEP_MM:
+        bx, by = self.calib.to_robot(*grasp_px(near))         # 쌓인 받침은 원근 보정 픽셀
+        if x is not None and math.hypot(bx - x, by - y) < STACK_MIN_SEP_MM:
             return '집을 큐브와 받침 큐브가 같은 자리'
-        return bx, by
+        if int(near.level) >= MAX_LEVEL:            # 그 위에 하나 더 = MAX_LEVEL 넘음
+            return f'받침이 이미 {near.level}층 (최대 {MAX_LEVEL}층까지만 쌓음)'
+        # 층 모름(0) = 1층으로 봄 (예전과 같음). 각도: 받침 큐브 면 방향 (못 재면 팔 방향)
+        base_yaw = self._cube_yaw(near)
+        if base_yaw is None:
+            base_yaw = self._place_yaw(bx, by)
+        return bx, by, max(1, int(near.level)), base_yaw
 
     def _exec_pick(self, goal_handle):
         """/aris3/real/pick_place 실행: 검사 -> 대상 픽셀을 지금 검출로 고쳐 로봇 좌표로 -> PickSequence 시작 -> 끝날 때까지 단계 feedback."""
@@ -419,7 +730,7 @@ class RealBridge(Node):
         res = RealPickPlace.Result()
         names = {G.HOVER: '큐브 위로', G.PICK: '집기', G.PLACE_AT: '고른 자리에 놓기',
                  G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기', G.RESUME: '이어서 하기',
-                 G.PICK_AND_STACK: '쌓기'}
+                 G.PICK_AND_STACK: '쌓기', G.PLACE_ON: '올려놓기'}
         what = names.get(g.kind)
         res.holding = hold_code(self.picker.holding, RealPickPlace.Result)
         if what is None:
@@ -433,32 +744,68 @@ class RealBridge(Node):
         notes = []
         z = self.calib.grasp_z
         P = self.picker
+        level, yaw, locate = 0, None, None
         if g.kind in (G.HOVER, G.PICK, G.PICK_AND_PLACE, G.PICK_AND_STACK):
-            x, y = self._target_xy(g.target_name, g.target_u, g.target_v, notes)
+            x, y, level, yaw, locate = self._target_xy(g.target_name, g.target_u, g.target_v, notes)
+            if level > MAX_LEVEL:                   # 잘못 잰 깊이로 높이 올라가 허공을 집지 않게
+                res.success, res.message = False, f'{what} 거부: 큐브가 {level}층으로 재짐 (최대 {MAX_LEVEL}층)'
+                self.get_logger().warn(res.message)
+                return self._finish(goal_handle, res)
+            if level > 1:
+                notes.append(f'{g.target_name or "큐브"} 는 {level}층 - 집는 높이 +{P.level_lift(level):.0f} mm')
+        pick_lift = P.level_lift(level)
         if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE):
             px, py = self.calib.to_robot(g.place_u, g.place_v)
-        if g.kind == G.PICK_AND_STACK:
-            why = self._stack_base_xy(g, x, y)
+            place_yaw = self._place_yaw(px, py)
+        if g.kind == G.PLACE_ON and P.holding is False:      # 올려놓기 (2026-11-14): 들고 있는 큐브가 있어야 한다
+            res.success, res.message = False, f'{what} 거부: 그리퍼가 비어 있음 (먼저 큐브를 집으세요)'
+            self.get_logger().warn(res.message)
+            return self._finish(goal_handle, res)
+        if g.kind in (G.PICK_AND_STACK, G.PLACE_ON):
+            # 올려놓기는 집을 큐브가 없으므로 「집을 큐브와 받침이 같은 자리」 검사를 하지 않는다 (None)
+            why = self._stack_base_xy(g, *((x, y) if g.kind == G.PICK_AND_STACK else (None, None)))
             if isinstance(why, str):
                 res.success, res.message = False, f'{what} 거부: {why}'
                 self.get_logger().warn(res.message)
                 return self._finish(goal_handle, res)
-            px, py = why
+            px, py, base_level, place_yaw = why
+        # 닿지 않는 위치 (2026-11-14): 집을 큐브·놓을 자리가 너무 멀면 출발하지 않는다 (화면은 이 문장을 보고 말로 알린다)
+        reach = float(self.get_parameter('reach_max_mm').value)
+        far = []
+        if g.kind in (G.HOVER, G.PICK, G.PICK_AND_PLACE, G.PICK_AND_STACK):
+            far.append((g.target_name or '큐브', math.hypot(x, y)))
+        if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE, G.PICK_AND_STACK, G.PLACE_ON):
+            far.append(('놓을 자리', math.hypot(px, py)))
+        near_min = float(self.get_parameter('reach_min_mm').value)
+        close = [(n, r) for n, r in far if r < near_min]
+        far = [(n, r) for n, r in far if r > reach]
+        if far or close:
+            res.success = False
+            res.message = (f'{what} 거부: {UNREACHABLE if far else TOO_CLOSE} - '
+                           + ', '.join(f'{n} 까지 {r:.0f} mm' for n, r in (far or close))
+                           + (f' (최대 {reach:.0f} mm)' if far else f' (최소 {near_min:.0f} mm)'))
+            self.get_logger().warn(res.message)
+            return self._finish(goal_handle, res)
         for n in notes:
             self.get_logger().warn(f'{what}: {n}')
         self._touch()
+        log_seq0 = getattr(self.link, 'log_seq', len(self.link.log_lines))    # 이 순서가 남기는 로봇 로그만 보려고
         if g.kind == G.RESUME:                # 정지로 끊긴 순서를 멈춘 단계부터 (좌표는 처음 계산한 그대로)
             started = P.resume()
         elif g.kind == G.HOVER:
-            started = P.hover(x, y, z)
+            started = P.hover(x, y, z, pick_lift, yaw=yaw, locate=locate)
         elif g.kind == G.PICK:
-            started = P.pick(x, y, z)
+            started = P.pick(x, y, z, pick_lift, yaw=yaw, locate=locate)
         elif g.kind == G.PLACE_AT:
-            started = P.place_at(px, py, z)
+            started = P.place_at(px, py, z, yaw=place_yaw)
         elif g.kind == G.PICK_AND_PLACE:
-            started = P.pick_and_place(x, y, z, px, py)
+            started = P.pick_and_place(x, y, z, px, py, pick_lift=pick_lift, yaw=yaw, place_yaw=place_yaw,
+                                       locate=locate)
         elif g.kind == G.PICK_AND_STACK:
-            started = P.pick_and_stack(x, y, z, px, py)
+            started = P.pick_and_stack(x, y, z, px, py, base_level, pick_lift, yaw=yaw, base_yaw=place_yaw,
+                                       locate=locate)
+        elif g.kind == G.PLACE_ON:
+            started = P.place_on(px, py, z, base_level, base_yaw=place_yaw)
         else:
             started = P.place_here(z)
         if not started:
@@ -477,6 +824,11 @@ class RealBridge(Node):
         res.holding = hold_code(P.holding, RealPickPlace.Result)
         res.success = bool(P.last_ok) and not goal_handle.is_cancel_requested
         res.message = f'{what}: ' + ('완료' if res.success else f'「{P.step}」 에서 멈춤 - {self._last_link_log("")}')
+        if not res.success:
+            # 컨트롤러가 「NOT REACHABLE」 로 거부했으면 (거리 검사를 지났어도 높이·자세 때문에) 결과에 표시
+            n_new = getattr(self.link, 'log_seq', len(self.link.log_lines)) - log_seq0
+            if controller_unreachable(self.link.log_lines[-n_new:] if n_new > 0 else []):
+                res.message += f' [{UNREACHABLE}]'
         return self._finish(goal_handle, res)
 
     # ================================================================== 주기: 잠금 시간, 상태 발행
@@ -534,7 +886,7 @@ class RealBridge(Node):
             e = [v for v in c.errors_mm if not math.isnan(v)]
             if e:
                 m.calib_error_mean_mm, m.calib_error_max_mm = float(sum(e) / len(e)), float(max(e))
-        m.calib_summary = c.summary()
+        m.calib_summary = c.summary() + (f'  |  {self._auto_summary()}' if self.auto_calib.points else '')
         if self.calib_px is not None:
             m.calib_pending, (m.calib_pending_u, m.calib_pending_v) = True, map(float, self.calib_px)
         return m

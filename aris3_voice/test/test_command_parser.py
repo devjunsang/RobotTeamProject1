@@ -126,6 +126,21 @@ def test_disconnect_and_power_on():
         assert validate_command(cmd)[0]
 
 
+def test_gripper_open():
+    """그리퍼 열기 (2026-11-14): 그리퍼·손·집게 + 열/펴/벌. 「멈춰」 가 섞이면 정지가 먼저."""
+    for s in ['그리퍼 열어', '그리퍼 열어줘', '그리퍼를 열어', '손 펴', '손을 펴줘', '집게 벌려', '그립퍼 열기']:
+        cmd = parse_command(s)
+        assert cmd['action'] == 'gripper_open', s
+        assert validate_command(cmd) == (True, 'GRIPPER_OPEN 명령 생성 (그리퍼 열기)')
+    assert parse_command('그리퍼 열지 말고 멈춰')['action'] == 'stop'
+
+
+def test_open_alone_is_not_gripper_open():
+    """「열어」 만(그리퍼·손·집게 없이)은 그리퍼 열기가 아니다 - 잡담으로 큐브를 떨어뜨리지 않게."""
+    for s in ['문 열어', '창문 열어줘', '열어']:
+        assert parse_command(s)['action'] != 'gripper_open', s
+
+
 def test_stop_beats_everything():
     """「멈춰」 는 다른 명령 낱말과 함께여도 정지."""
     assert parse_command('가동 멈춰')['action'] == 'stop'
@@ -163,3 +178,123 @@ def test_stack_same_color_invalid():
     """같은 색 위에 쌓으라는 말(받침 = 집을 큐브)은 실행하지 않는다."""
     cmd = dict(parse_command("노란 큐브 집어줘"), target_color="yellow")
     assert not validate_command(cmd, KNOWN)[0]
+
+
+# ---------------------------------------------------------------- 큐브 번호 (2026-11-14)
+NUMBER_CASES = [
+    ("1번 파란색 큐브 집어줘", "blue", 1),
+    ("파란 큐브 2번 잡아", "blue", 2),                # 번호를 색 뒤에 말함
+    ("일번 빨간 큐브 집어", "red", 1),                 # 한글로 적힌 번호
+    ("두 번째 노란 큐브 들어", "yellow", 2),
+    ("3번 노란색 큐브 저기로 옮겨줘", "yellow", 3),
+    ("파란 큐브 이번 집어줘", "blue", 2),              # 색 뒤의 「이번」 = 2번
+    ("이번에는 파란 큐브 집어줘", "blue", 0),          # 「이번에는」 은 번호가 아니다
+    ("빨간 큐브 집어줘", "red", 0),                    # 번호를 말하지 않음
+]
+
+
+@pytest.mark.parametrize("text,color,number", NUMBER_CASES)
+def test_cube_number(text, color, number):
+    """「N번 색 큐브」: 색과 큐브 번호를 함께 읽는다 (번호가 없으면 0). 실행할 수 있는 PICK 명령."""
+    cmd = parse_command(text)
+    assert (cmd["action"], cmd["color"], cmd["number"], cmd["target_number"]) == ("pick", color, number, 0), cmd
+    assert validate_command(cmd, KNOWN)[0]
+
+
+def test_number_without_color_is_not_enough():
+    """색 없이 번호만 말하면(「1번 큐브 집어줘」) 어느 색인지 몰라 실행하지 않는다."""
+    cmd = parse_command("1번 큐브 집어줘")
+    assert cmd["number"] == 0 and not validate_command(cmd, KNOWN)[0]
+
+
+STACK_NUMBER_CASES = [
+    ("1번 파란 큐브를 2번 파란 큐브 위로 옮겨줘", "blue", 1, "blue", 2),     # 같은 색끼리 번호로 구분
+    ("노란 큐브를 2번 파란 큐브 위로 옮겨줘", "yellow", 0, "blue", 2),
+    ("1번 빨간 큐브를 파란 큐브 위에 올려", "red", 1, "blue", 0),
+    ("파란 큐브 위에 1번 빨간 큐브 올려", "red", 1, "blue", 0),             # 받침을 먼저 말함
+    ("이거 2번 파란 큐브 위에 올려", "", 0, "blue", 2),                     # 화면에서 고른 물체를 2번 파랑 위로
+]
+
+
+@pytest.mark.parametrize("text,color,number,target,target_number", STACK_NUMBER_CASES)
+def test_stack_with_numbers(text, color, number, target, target_number):
+    """쌓기에서 집을 큐브·받침 큐브의 번호를 따로 읽는다. 같은 색끼리도 번호가 다르면 쌓기."""
+    cmd = parse_command(text)
+    assert (cmd["action"], cmd["color"], cmd["number"], cmd["target_color"], cmd["target_number"]) == \
+        ("pick", color, number, target, target_number), cmd
+    ok, why = validate_command(cmd, KNOWN)
+    assert ok and "STACK" in why
+
+
+def test_stack_same_color_needs_different_numbers():
+    """같은 색 위에 쌓기: 번호가 서로 다를 때만 실행한다 (번호가 같거나 한쪽만 있으면 거부)."""
+    base = dict(parse_command("파란 큐브 집어줘"), target_color="blue")
+    assert not validate_command(dict(base, number=1, target_number=1), KNOWN)[0]
+    assert not validate_command(dict(base, number=1, target_number=0), KNOWN)[0]
+    assert validate_command(dict(base, number=1, target_number=2), KNOWN)[0]
+
+
+# ---------------------------------------------------------------- 올려놓기 (2026-11-14)
+PLACE_ON_CASES = [
+    ("빨간큐브위로 올려놔", "red", 0),
+    ("빨간 큐브 위에 올려놔", "red", 0),
+    ("2번 파란 큐브 위에 놓아줘", "blue", 2),
+    ("노란 큐브 위로 옮겨줘", "yellow", 0),
+    ("빨간 큐브 위에 쌓아", "red", 0),
+]
+
+
+@pytest.mark.parametrize("text,target,target_number", PLACE_ON_CASES)
+def test_place_on(text, target, target_number):
+    """받침만 말하면 지금 들고 있는 큐브를 그 위에 놓는다: place + color 없음 + target_color = 받침."""
+    cmd = parse_command(text)
+    assert (cmd["action"], cmd["color"], cmd["number"], cmd["target_color"], cmd["target_number"]) == \
+        ("place", "", 0, target, target_number), cmd
+    assert not cmd["ref_object"] and not cmd["ref_place"]
+    ok, why = validate_command(cmd, KNOWN)
+    assert ok and "PLACE_ON" in why
+
+
+def test_not_place_on():
+    """집기·들기 말이 있거나(「위로 들어줘」), 「이거」 가 있거나(쌓기), 「위」 가 없으면 올려놓기가 아니다."""
+    assert parse_command("노란 큐브 위로 들어줘")["action"] == "pick"
+    cmd = parse_command("이거 파란 큐브 위에 올려줘")
+    assert cmd["action"] == "pick" and cmd["ref_object"] and cmd["target_color"] == "blue"
+    assert parse_command("내려놔")["target_color"] == ""
+    assert parse_command("빨간 큐브 집어줘")["action"] == "pick"
+
+
+# ---------------------------------------------------------------- 찾기 (2026-11-14)
+@pytest.mark.parametrize("text,color,number", [
+    ("파란색 큐브 찾아", "blue", 0),
+    ("빨간 큐브 찾아줘", "red", 0),
+    ("2번 파란 큐브 찾아봐", "blue", 2),
+    ("노란 큐브 어디 있어", "yellow", 0),
+])
+def test_find(text, color, number):
+    """「색 큐브 찾아」: find + 색 (+ 번호). 집지 않는 명령."""
+    cmd = parse_command(text)
+    assert (cmd["action"], cmd["color"], cmd["number"], cmd["target_color"]) == ("find", color, number, ""), cmd
+    ok, why = validate_command(cmd, KNOWN)
+    assert ok and "FIND" in why
+
+
+def test_find_needs_color_and_pick_wins():
+    """색 없이 「찾아」 만 하면 실행하지 않는다. 집기 말이 함께 있으면 찾기가 아니라 집기다."""
+    assert not validate_command(parse_command("큐브 찾아줘"), KNOWN)[0]
+    cmd = parse_command("파란 큐브 찾아서 집어줘")
+    assert (cmd["action"], cmd["color"]) == ("pick", "blue")
+
+
+# ---------------------------------------------------------------- 탐색 (2026-11-14)
+def test_scan_and_scan_with_color_is_find():
+    """색 없는 「탐색」 = scan (세 가지 색이 보일 때까지). 색을 말하면 그 색 찾기(find). 집기 말이 있으면 집기."""
+    for text in ("탐색", "탐색해", "탐색 시작해줘", "주변 둘러봐"):
+        cmd = parse_command(text)
+        assert (cmd["action"], cmd["color"]) == ("scan", ""), text
+        ok, why = validate_command(cmd, KNOWN)
+        assert ok and "SCAN" in why
+    cmd = parse_command("파란 큐브 탐색해")
+    assert (cmd["action"], cmd["color"]) == ("find", "blue")
+    assert parse_command("탐색해서 빨간 큐브 집어줘")["action"] == "pick"
+

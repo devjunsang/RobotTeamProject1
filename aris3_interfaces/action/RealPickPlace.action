@@ -13,6 +13,8 @@ uint8 RESUME=5                    # 정지로 끊긴 순서를 멈춘 단계부�
                                   # 정지 뒤 다른 동작(홈·조그·손 안내·접속 끊기)을 했으면 이을 순서가 없다
 uint8 PICK_AND_STACK=6            # 쌓기 (2026-11-13): target 큐브를 집어 place 픽셀의 받침 큐브 위에 놓음  (target, place)
                                   # 받침 큐브는 움직이기 직전 검출로 다시 찾고, 안 보이면 거부. 놓는 높이 = 집는 높이 + 큐브 높이
+uint8 PLACE_ON=7                  # 올려놓기 (2026-11-14): 지금 들고 있는 큐브를 place 픽셀의 받침 큐브 위에 놓음        (place)
+                                  # 「빨간 큐브 위로 올려놔」. 받침은 PICK_AND_STACK 처럼 다시 찾고, 빈손이면 거부
 
 uint8 kind
 string target_name                # 로그·화면용 이름 ("yellow", "blue_cube")

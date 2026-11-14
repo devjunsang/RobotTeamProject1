@@ -55,6 +55,17 @@ def test_to_command_rejects_values_outside_schema():
     assert not validate_command(cmd)[0]
 
 
+def test_to_command_cube_numbers():
+    """큐브 번호 (2026-11-14): 0 ~ 9 의 정수만 받고, 없거나 이상한 값(문자열·범위 밖·bool)은 0."""
+    cmd = to_command({'action': 'pick', 'color': 'blue', 'target_color': 'blue', 'number': 1, 'target_number': 2},
+                     '1번 파란 큐브를 2번 파란 큐브 위로')
+    assert (cmd['number'], cmd['target_number']) == (1, 2)
+    assert validate_command(cmd)[0]                              # 같은 색이라도 번호가 다르면 쌓기
+    assert to_command({'action': 'pick', 'color': 'red'}, '빨간 큐브')['number'] == 0
+    for bad in ('2', 12, -1, True, None, 1.5):
+        assert to_command({'action': 'pick', 'color': 'red', 'number': bad}, 'x')['number'] == 0, bad
+
+
 def test_parse_with_fake_response_and_request_shape():
     """가짜 응답 해석 + 요청이 Haiku·낮은 effort·JSON 스키마로 나가는지."""
     p = make({'action': 'home', 'color': '', 'shape': '', 'ref_object': False,
@@ -105,6 +116,8 @@ LIVE = (llm_parser.anthropic is not None) and bool(os.environ.get('ANTHROPIC_API
     ('계속해', 'resume', ''),
     ('연결 해제', 'disconnect', ''),
     ('가동', 'power_on', ''),
+    ('그리퍼 열어', 'gripper_open', ''),
+    ('손 좀 펴 줄래', 'gripper_open', ''),
     ('빨간 거 말고 파란 거 들어줘', 'pick', 'blue'),       # 낱말 표는 빨강으로 읽음
     ('노란색 큐구 자바', 'pick', 'yellow'),                # 음성 인식 오타
     ('처음 자세로 돌아가 줄래', 'home', ''),
@@ -131,3 +144,22 @@ def test_live_haiku_stack(text, color, target):
     cmd = p.parse(text)
     assert cmd is not None, p.why_off
     assert (cmd['action'], cmd['color'], cmd['target_color']) == ('pick', color, target), cmd
+
+
+@pytest.mark.skipif(not LIVE, reason='ANTHROPIC_API_KEY 또는 anthropic 패키지 없음')
+@pytest.mark.parametrize('text, color, number, target, target_number', [
+    ('1번 파란색 큐브 집어줘', 'blue', 1, '', 0),
+    ('파란 큐브 2번 잡아', 'blue', 2, '', 0),
+    ('두 번째 빨간 큐브 들어줘', 'red', 2, '', 0),
+    ('이번에는 파란 큐브 집어줘', 'blue', 0, '', 0),                 # 「이번에는」 은 번호가 아니다
+    ('1번 파란 큐브를 2번 파란 큐브 위로 옮겨줘', 'blue', 1, 'blue', 2),
+    ('노란 큐브를 2번 파란 큐브 위에 올려', 'yellow', 0, 'blue', 2),
+])
+def test_live_haiku_cube_number(text, color, number, target, target_number):
+    """큐브 번호 (2026-11-14): 집을 큐브·받침 큐브의 번호를 읽는가 (스키마의 정수 enum 이 API 에서 받아들여지는지도 함께)."""
+    p = LlmParser(timeout_s=10.0)
+    cmd = p.parse(text)
+    assert cmd is not None, p.why_off
+    assert (cmd['action'], cmd['color'], cmd['number'], cmd['target_color'], cmd['target_number']) == \
+        ('pick', color, number, target, target_number), cmd
+

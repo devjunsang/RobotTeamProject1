@@ -1,0 +1,614 @@
+diff --git a/aris3_interfaces/action/ExecuteTask.action b/aris3_interfaces/action/ExecuteTask.action
+index 27a9d16..1cd1003 100644
+--- a/aris3_interfaces/action/ExecuteTask.action
++++ b/aris3_interfaces/action/ExecuteTask.action
+@@ -7,6 +7,10 @@ string target_color               # "red" | "green" | "blue"
+ string target_shape               # "" = 모양 상관없음
+ string destination                # 목표 구역 이름: "A" | "B" | "C"
+ bool dry_run                      # true: 검증·인식·계획까지만 하고 로봇은 움직이지 않음
++# --- 2026-11-09 추가 (손짓 상호작용용, 비워 두면 위의 기존 방식 그대로)
++string target_id                  # 비전이 붙인 물체 이름 (예: "blue_cube"). 있으면 색·모양 대신 이것으로 고른다
++bool use_place_position           # true: destination 구역 대신 place_position 에 놓는다
++geometry_msgs/Point place_position  # 놓을 자리 (world_frame 기준 x, y [m]. z 는 무시 - 탁자 표면)
+ ---
+ # ---------------- Result (결과)
+ uint8 ERROR_NONE=0
+diff --git a/aris3_interfaces/msg/VoiceCommand.msg b/aris3_interfaces/msg/VoiceCommand.msg
+index ced68c2..70e4ae6 100644
+--- a/aris3_interfaces/msg/VoiceCommand.msg
++++ b/aris3_interfaces/msg/VoiceCommand.msg
+@@ -7,6 +7,8 @@ string normalized_text            # 오인식 보정·공백 제거 후
+ string action                     # "pick" | "place" | "" (모름)
+ string color                      # "red" | "blue" | "yellow" | "green" | ""
+ string shape                      # "cube" | ... | "" (말하지 않음 - 모양이 모두 같으면 생략 가능)
++bool refers_selected_object       # 「이거/그거/저거」: 화면(클릭·손짓)에서 고른 물체를 가리킴 (2026-11-09)
++bool refers_selected_place        # 「저기/여기/거기」: 화면(클릭·손짓)에서 고른 자리를 가리킴
+ bool valid                        # 실행할 수 있는 명령인가 (아래 message 에 이유)
+ string message                    # 사람이 읽는 설명 ("PICK 명령 생성", "색이 지정되지 않음" ...)
+ float32 stt_time_s                # 음성 인식에 걸린 시간 [s]
+diff --git a/aris3_task_manager/include/aris3_task_manager/target_estimator.hpp b/aris3_task_manager/include/aris3_task_manager/target_estimator.hpp
+index a0ce1a2..caab9a1 100644
+--- a/aris3_task_manager/include/aris3_task_manager/target_estimator.hpp
++++ b/aris3_task_manager/include/aris3_task_manager/target_estimator.hpp
+@@ -24,9 +24,10 @@ struct Observation
+ 
+ struct TargetQuery
+ {
+-  std::string color;          // 필수
++  std::string color;          // id 가 비어 있으면 필수
+   std::string shape;          // "" = 상관없음
+   double min_confidence{0.5};
++  std::string id;             // 있으면 이 이름의 물체만 (색·모양은 보지 않음). 손짓으로 고른 물체
+ };
+ 
+ enum class EstimateStatus { OK, NOT_FOUND, UNSTABLE, AMBIGUOUS };
+diff --git a/aris3_task_manager/include/aris3_task_manager/task_manager_node.hpp b/aris3_task_manager/include/aris3_task_manager/task_manager_node.hpp
+index 83fb6cd..5fb1cda 100644
+--- a/aris3_task_manager/include/aris3_task_manager/task_manager_node.hpp
++++ b/aris3_task_manager/include/aris3_task_manager/task_manager_node.hpp
+@@ -69,7 +69,9 @@ private:
+     Stage stage{Stage::VALIDATE};
+     double stage_fraction{0.0};   // 현재 단계 안에서의 진행 (0~1, 줄어들지 않음)
+     TargetQuery query;
+-    Vec3 zone_world;              // 구역 중심의 테이블 표면 점 (world)
++    Vec3 zone_world;              // 놓을 자리: 구역 중심 또는 place_position 의 테이블 표면 점 (world)
++    std::string target_label;     // 사람이 읽는 목표 이름 (색 또는 물체 id)
++    std::string dest_label;       // 사람이 읽는 놓을 자리 ("구역 A" 또는 "(x, y)")
+     Vec3 object_world;            // 카메라가 본 물체 중심 (world)
+     std::string object_id;
+     std::vector<Observation> last_objects;  // 마지막으로 받은 영상의 모든 물체 (구역 점유 확인용)
+@@ -128,6 +130,7 @@ private:
+   Workspace workspace_;
+   std::map<std::string, Vec3> zones_world_;   // 구역 이름 → 테이블 표면 점 (world)
+   std::vector<std::string> known_colors_;
++  double table_z_world_{0.75};
+   double zone_tolerance_m_{0.03};
+   double zone_clear_radius_m_{0.06};
+   int perception_frames_{5};
+diff --git a/aris3_task_manager/src/send_task.cpp b/aris3_task_manager/src/send_task.cpp
+index 73f640c..2ef262a 100644
+--- a/aris3_task_manager/src/send_task.cpp
++++ b/aris3_task_manager/src/send_task.cpp
+@@ -4,6 +4,7 @@
+ //   ros2 run aris3_task_manager send_task blue C --dry-run
+ //   ros2 run aris3_task_manager send_task green B --shape cube
+ //   ros2 run aris3_task_manager send_task red A --action /aris3/test_execute_task   (시험용 서버)
++//   ros2 run aris3_task_manager send_task --id blue_cube --at 0.30,-0.20      (물체 이름 + 좌표, 손짓용)
+ //
+ // 진행 상황(feedback)을 한 줄씩 출력하고, Ctrl-C 를 누르면 작업 "취소"를 요청한 뒤 결과를 기다린다.
+ // 종료 코드: 0 = 성공, 1 = 실패/취소, 2 = 서버 없음·거절.
+@@ -41,17 +42,35 @@ int main(int argc, char ** argv)
+       action_name = args[++i];
+     } else if (args[i] == "--shape" && i + 1 < args.size()) {
+       goal.target_shape = args[++i];
++    } else if (args[i] == "--id" && i + 1 < args.size()) {
++      goal.target_id = args[++i];
++    } else if (args[i] == "--at" && i + 1 < args.size()) {
++      double x = 0.0, y = 0.0;
++      if (std::sscanf(args[++i].c_str(), "%lf,%lf", &x, &y) != 2) {
++        std::fprintf(stderr, "--at 은 X,Y 형식 (예: --at 0.30,-0.20)\n");
++        rclcpp::shutdown();
++        return 2;
++      }
++      goal.use_place_position = true;
++      goal.place_position.x = x;
++      goal.place_position.y = y;
+     } else {
+       pos.push_back(args[i]);
+     }
+   }
+-  if (pos.size() != 2) {
+-    std::fprintf(stderr, "사용법: send_task <색: red|green|blue> <구역: A|B|C> [--dry-run] [--shape cube] [--action 이름]\n");
++  // 위치 인자: 색이 필요하면(--id 없음) 첫 번째, 구역이 필요하면(--at 없음) 그다음
++  const size_t need = (goal.target_id.empty() ? 1 : 0) + (goal.use_place_position ? 0 : 1);
++  if (pos.size() != need) {
++    std::fprintf(stderr,
++      "사용법: send_task <색> <구역: A|B|C> [--dry-run] [--shape cube] [--action 이름]\n"
++      "        send_task --id <물체 이름> --at X,Y      (물체 이름으로 고르고 좌표에 놓기, world [m])\n"
++      "        send_task <색> --at X,Y  |  send_task --id <물체 이름> <구역>\n");
+     rclcpp::shutdown();
+     return 2;
+   }
+-  goal.target_color = pos[0];
+-  goal.destination = pos[1];
++  size_t k = 0;
++  if (goal.target_id.empty()) {goal.target_color = pos[k++];}
++  if (!goal.use_place_position) {goal.destination = pos[k++];}
+ 
+   auto node = rclcpp::Node::make_shared("aris3_send_task");
+   auto client = rclcpp_action::create_client<ExecuteTask>(node, action_name);
+@@ -66,9 +85,15 @@ int main(int argc, char ** argv)
+       std::printf("[%3.0f%%] %-8s %s\n", fb->progress * 100.0, fb->stage.c_str(), fb->detail.c_str());
+       std::fflush(stdout);
+     };
+-  std::printf("요청: %s%s -> %s%s\n", goal.target_color.c_str(),
+-    goal.target_shape.empty() ? "" : (" " + goal.target_shape).c_str(), goal.destination.c_str(),
+-    goal.dry_run ? " (dry_run: 로봇은 움직이지 않음)" : "");
++  char where[64];
++  if (goal.use_place_position) {
++    std::snprintf(where, sizeof(where), "(%.3f, %.3f)", goal.place_position.x, goal.place_position.y);
++  } else {
++    std::snprintf(where, sizeof(where), "%s", goal.destination.c_str());
++  }
++  const std::string what = goal.target_id.empty() ?
++    goal.target_color + (goal.target_shape.empty() ? "" : " " + goal.target_shape) : goal.target_id;
++  std::printf("요청: %s -> %s%s\n", what.c_str(), where, goal.dry_run ? " (dry_run: 로봇은 움직이지 않음)" : "");
+   auto goal_future = client->async_send_goal(goal, opts);
+   if (rclcpp::spin_until_future_complete(node, goal_future, 10s) != rclcpp::FutureReturnCode::SUCCESS) {
+     std::fprintf(stderr, "요청 전송 실패\n");
+diff --git a/aris3_task_manager/src/target_estimator.cpp b/aris3_task_manager/src/target_estimator.cpp
+index afa2eef..1570fac 100644
+--- a/aris3_task_manager/src/target_estimator.cpp
++++ b/aris3_task_manager/src/target_estimator.cpp
+@@ -25,6 +25,9 @@ TargetEstimator::TargetEstimator(TargetQuery query, double same_object_radius_m)
+ 
+ bool TargetEstimator::matches(const Observation & o) const
+ {
++  if (!q_.id.empty()) {
++    return o.id == q_.id && o.confidence >= q_.min_confidence;
++  }
+   if (lower(o.color) != q_.color) {return false;}
+   if (!q_.shape.empty() && lower(o.shape) != q_.shape) {return false;}
+   return o.confidence >= q_.min_confidence;
+diff --git a/aris3_task_manager/src/task_manager_node.cpp b/aris3_task_manager/src/task_manager_node.cpp
+index 88d2e39..e98b29b 100644
+--- a/aris3_task_manager/src/task_manager_node.cpp
++++ b/aris3_task_manager/src/task_manager_node.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <algorithm>
+ #include <cctype>
++#include <cmath>
+ #include <cstdio>
+ #include <functional>
+ 
+@@ -223,6 +224,7 @@ void TaskManagerNode::loadParameters()
+   const auto names = get_parameter("zone_names").as_string_array();
+   const auto xy = get_parameter("zone_xy_world").as_double_array();
+   const double table_z = get_parameter("table_z_world").as_double();
++  table_z_world_ = table_z;
+   if (xy.size() != 2 * names.size()) {
+     throw std::runtime_error("zone_xy_world 는 zone_names 개수의 2배 (x, y 쌍) 여야 함");
+   }
+@@ -252,18 +254,32 @@ void TaskManagerNode::loadParameters()
+ // =====================================================================================
+ // 액션 서버 콜백 3종 — executor 스레드에서 불리므로 오래 걸리는 일을 하면 안 된다.
+ // =====================================================================================
++namespace
++{
++// 로그용 한 줄 요약: "blue_cube -> (0.300, -0.200)" / "red -> A"
++std::string describeGoal(const aris3_interfaces::action::ExecuteTask::Goal & g)
++{
++  std::string what = g.target_id.empty() ? g.target_color : g.target_id;
++  if (g.target_id.empty() && !g.target_shape.empty()) {what += " " + g.target_shape;}
++  char where[64];
++  if (g.use_place_position) {
++    std::snprintf(where, sizeof(where), "(%.3f, %.3f)", g.place_position.x, g.place_position.y);
++  } else {
++    std::snprintf(where, sizeof(where), "%s", g.destination.c_str());
++  }
++  return what + " -> " + where + (g.dry_run ? " (dry_run)" : "");
++}
++}  // namespace
++
+ rclcpp_action::GoalResponse TaskManagerNode::handleGoal(
+   const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecuteTask::Goal> goal)
+ {
+   // 한 번에 한 작업만. exchange(true) 는 "이전 값을 돌려주고 true 로 바꾸기"를 한 번에(원자적으로) 한다.
+   if (busy_.exchange(true)) {
+-    RCLCPP_WARN(get_logger(), "거절: 이미 작업 중 (%s -> %s 요청)",
+-      goal->target_color.c_str(), goal->destination.c_str());
++    RCLCPP_WARN(get_logger(), "거절: 이미 작업 중 (%s 요청)", describeGoal(*goal).c_str());
+     return rclcpp_action::GoalResponse::REJECT;
+   }
+-  RCLCPP_INFO(get_logger(), "수락: %s%s%s -> %s%s", goal->target_color.c_str(),
+-    goal->target_shape.empty() ? "" : " ", goal->target_shape.c_str(), goal->destination.c_str(),
+-    goal->dry_run ? " (dry_run)" : "");
++  RCLCPP_INFO(get_logger(), "수락: %s", describeGoal(*goal).c_str());
+   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+ }
+ 
+@@ -290,7 +306,7 @@ void TaskManagerNode::execute(std::shared_ptr<GoalHandle> goal_handle)
+   ctx.goal_handle = goal_handle;
+   ctx.goal = *goal_handle->get_goal();
+   ctx.start = std::chrono::steady_clock::now();
+-  ctx.task_id = lower(ctx.goal.target_color) + "->" + upper(ctx.goal.destination) + " #" +
++  ctx.task_id = describeGoal(ctx.goal) + " #" +
+     std::to_string(++task_counter_);
+ 
+   ErrorCode code = ErrorCode::NONE;
+@@ -321,7 +337,7 @@ void TaskManagerNode::execute(std::shared_ptr<GoalHandle> goal_handle)
+       }
+       stagePlace(ctx);
+       stageVerify(ctx);
+-      message = fmt("완료: 구역 중심에서 %.1f mm (허용 %.0f mm)", ctx.result->place_error_mm,
++      message = "완료: " + ctx.dest_label + fmt(" 중심에서 %.1f mm (허용 %.0f mm)", ctx.result->place_error_mm,
+           zone_tolerance_m_ * 1000, 0);
+     }
+   } catch (const TaskError & e) {
+@@ -373,20 +389,36 @@ void TaskManagerNode::stageValidate(TaskContext & ctx)
+   if (!g.task_type.empty() && lower(g.task_type) != "pick_place") {
+     throw TaskError(ErrorCode::INVALID_GOAL, "지원하지 않는 작업 종류: " + g.task_type);
+   }
++  // 무엇을: 물체 이름(target_id, 손짓으로 고른 물체) 또는 색(+모양)
+   const std::string color = lower(g.target_color);
+-  if (std::find(known_colors_.begin(), known_colors_.end(), color) == known_colors_.end()) {
++  if (g.target_id.empty() &&
++    std::find(known_colors_.begin(), known_colors_.end(), color) == known_colors_.end())
++  {
+     std::string list;
+     for (const auto & c : known_colors_) {list += c + " ";}
+     throw TaskError(ErrorCode::INVALID_GOAL, "모르는 색 '" + g.target_color + "' (가능: " + list + ")");
+   }
+-  auto zone = zones_world_.find(upper(g.destination));
+-  if (zone == zones_world_.end()) {
+-    std::string list;
+-    for (const auto & z : zones_world_) {list += z.first + " ";}
+-    throw TaskError(ErrorCode::INVALID_GOAL, "모르는 구역 '" + g.destination + "' (가능: " + list + ")");
++  ctx.query = TargetQuery{color, lower(g.target_shape), min_confidence_, g.target_id};
++  ctx.target_label = g.target_id.empty() ? color : g.target_id;
++
++  // 어디에: 이름 붙은 구역 또는 임의 좌표(place_position, world_frame, 탁자 표면)
++  if (g.use_place_position) {
++    if (!std::isfinite(g.place_position.x) || !std::isfinite(g.place_position.y)) {
++      throw TaskError(ErrorCode::INVALID_GOAL, "놓을 좌표가 숫자가 아님");
++    }
++    ctx.zone_world = Vec3{g.place_position.x, g.place_position.y, table_z_world_};
++    ctx.dest_label = fmt("(%.3f, %.3f)", g.place_position.x, g.place_position.y, 0);
++    // 작업 공간 밖 좌표는 PLAN 단계의 작업 공간·IK 검사가 움직이기 전에 거부한다.
++  } else {
++    auto zone = zones_world_.find(upper(g.destination));
++    if (zone == zones_world_.end()) {
++      std::string list;
++      for (const auto & z : zones_world_) {list += z.first + " ";}
++      throw TaskError(ErrorCode::INVALID_GOAL, "모르는 구역 '" + g.destination + "' (가능: " + list + ")");
++    }
++    ctx.zone_world = zone->second;
++    ctx.dest_label = "구역 " + zone->first;
+   }
+-  ctx.zone_world = zone->second;
+-  ctx.query = TargetQuery{color, lower(g.target_shape), min_confidence_};
+ 
+   std::string missing;
+   if (!robot_->servicesReady(&missing)) {
+@@ -420,7 +452,7 @@ void TaskManagerNode::stageValidate(TaskContext & ctx)
+   if (!refreshTransforms(&tf_error)) {
+     throw TaskError(ErrorCode::NOT_READY, "좌표 변환 없음: " + tf_error);
+   }
+-  report(ctx, "확인 완료: 로봇 대기, 그리퍼·카메라·TF 정상. 구역 " + upper(g.destination) + " " +
++  report(ctx, "확인 완료: 로봇 대기, 그리퍼·카메라·TF 정상. 놓을 자리 " + ctx.dest_label + " " +
+     xyz(ctx.zone_world), 1.0);
+ }
+ 
+@@ -440,7 +472,7 @@ void TaskManagerNode::stageObserve(TaskContext & ctx)
+ // ---- 3. PERCEIVE: 여러 장의 카메라 결과로 목표 물체 위치를 정한다.
+ void TaskManagerNode::stagePerceive(TaskContext & ctx)
+ {
+-  enterStage(ctx, Stage::PERCEIVE, "카메라로 " + ctx.query.color + " 물체 찾기");
++  enterStage(ctx, Stage::PERCEIVE, "카메라로 " + ctx.target_label + " 물체 찾기");
+   const Estimate e = perceive(ctx, "집기 전");
+   switch (e.status) {
+     case EstimateStatus::OK: break;
+@@ -455,10 +487,10 @@ void TaskManagerNode::stagePerceive(TaskContext & ctx)
+   const auto occupants = occupantsNear(ctx.last_objects, ctx.zone_world, zone_clear_radius_m_, e.mean);
+   if (!occupants.empty()) {
+     const auto & o = occupants.front();
+-    throw TaskError(ErrorCode::DESTINATION_OCCUPIED, "구역 " + upper(ctx.goal.destination) + "에 이미 " +
++    throw TaskError(ErrorCode::DESTINATION_OCCUPIED, ctx.dest_label + "에 이미 " +
+             (o.id.empty() ? o.color : o.id) + " 가 있음 " + xyz(o.position) + " - 움직이지 않음");
+   }
+-  report(ctx, "찾음: " + (e.id.empty() ? ctx.query.color : e.id) + " " + xyz(e.mean) +
++  report(ctx, "찾음: " + (e.id.empty() ? ctx.target_label : e.id) + " " + xyz(e.mean) +
+     fmt(" (영상 %.0f장, 흔들림 %.1f mm)", e.frames_matched, e.spread_m * 1000, 0), 1.0);
+ }
+ 
+@@ -541,14 +573,14 @@ void TaskManagerNode::stagePick(TaskContext & ctx)
+             (wrong_object ? " (다른 물체 " + g.object_id + ")" : ""));
+   }
+   ctx.holding = true;
+-  report(ctx, "잡음: " + (g.object_id.empty() ? ctx.query.color : g.object_id), 0.7);
++  report(ctx, "잡음: " + (g.object_id.empty() ? ctx.target_label : g.object_id), 0.7);
+   moveTcp(ctx, ctx.plan.above_object, "들어 올리기");
+ }
+ 
+ // ---- 6. PLACE: 구역 위 → 하강 → 열기 → 위로 빠지기
+ void TaskManagerNode::stagePlace(TaskContext & ctx)
+ {
+-  enterStage(ctx, Stage::PLACE, "구역 " + upper(ctx.goal.destination) + "에 놓기");
++  enterStage(ctx, Stage::PLACE, ctx.dest_label + "에 놓기");
+   moveTcp(ctx, ctx.plan.above_zone, "구역 위로", true);
+   moveTcp(ctx, ctx.plan.place, "놓는 위치로 하강");
+   auto g = gripper_->open();
+@@ -575,9 +607,9 @@ void TaskManagerNode::stageVerify(TaskContext & ctx)
+   ctx.result->place_error_mm = static_cast<float>(err * 1000.0);
+   if (err > zone_tolerance_m_) {
+     throw TaskError(ErrorCode::PLACE_VERIFY_FAILED,
+-            fmt("구역 밖: 중심에서 %.1f mm (허용 %.0f mm)", err * 1000, zone_tolerance_m_ * 1000, 0));
++            ctx.dest_label + fmt(" 밖: 중심에서 %.1f mm (허용 %.0f mm)", err * 1000, zone_tolerance_m_ * 1000, 0));
+   }
+-  report(ctx, "구역 안 확인: 물체 " + xyz(e.mean) + fmt(", 중심에서 %.1f mm", err * 1000, 0, 0), 1.0);
++  report(ctx, ctx.dest_label + " 안 확인: 물체 " + xyz(e.mean) + fmt(", 중심에서 %.1f mm", err * 1000, 0, 0), 1.0);
+ }
+ 
+ // ---- 실패·취소 후 처리
+diff --git a/aris3_task_manager/test/test_target_estimator.cpp b/aris3_task_manager/test/test_target_estimator.cpp
+index 7cb3b2d..73ac9ee 100644
+--- a/aris3_task_manager/test/test_target_estimator.cpp
++++ b/aris3_task_manager/test/test_target_estimator.cpp
+@@ -15,7 +15,7 @@ Observation obs(const std::string & color, double x, double y, double conf = 0.9
+ 
+ TEST(TargetEstimator, AveragesStableDetections)
+ {
+-  TargetEstimator est({"red", "", 0.5});
++  TargetEstimator est({"red", "", 0.5, ""});
+   for (int i = 0; i < 5; ++i) {
+     est.addFrame({obs("red", 0.450 + 0.001 * (i % 2), -0.150), obs("blue", 0.45, 0.15)});
+   }
+@@ -28,7 +28,7 @@ TEST(TargetEstimator, AveragesStableDetections)
+ 
+ TEST(TargetEstimator, NotFoundWhenTooFewFrames)
+ {
+-  TargetEstimator est({"green", "", 0.5});
++  TargetEstimator est({"green", "", 0.5, ""});
+   est.addFrame({obs("green", 0.45, 0.0)});
+   est.addFrame({obs("red", 0.45, -0.15)});
+   const auto e = est.estimate(5, 0.005);
+@@ -39,21 +39,21 @@ TEST(TargetEstimator, NotFoundWhenTooFewFrames)
+ 
+ TEST(TargetEstimator, UnstableWhenPositionJumps)
+ {
+-  TargetEstimator est({"red", "", 0.5});
++  TargetEstimator est({"red", "", 0.5, ""});
+   for (int i = 0; i < 5; ++i) {est.addFrame({obs("red", 0.45 + (i == 4 ? 0.03 : 0.0), -0.15)});}
+   EXPECT_EQ(est.estimate(5, 0.005).status, EstimateStatus::UNSTABLE);
+ }
+ 
+ TEST(TargetEstimator, AmbiguousWhenTwoSeparateMatches)
+ {
+-  TargetEstimator est({"red", "", 0.5});
++  TargetEstimator est({"red", "", 0.5, ""});
+   est.addFrame({obs("red", 0.45, -0.15), obs("red", 0.30, 0.10)});
+   EXPECT_EQ(est.estimate(1, 0.005).status, EstimateStatus::AMBIGUOUS);
+ }
+ 
+ TEST(TargetEstimator, SplitBlobOfOneObjectIsMerged)
+ {
+-  TargetEstimator est({"red", "", 0.5});
++  TargetEstimator est({"red", "", 0.5, ""});
+   est.addFrame({obs("red", 0.450, -0.150), obs("red", 0.455, -0.150)});  // 5 mm 떨어진 두 조각
+   const auto e = est.estimate(1, 0.005);
+   ASSERT_EQ(e.status, EstimateStatus::OK);
+@@ -62,13 +62,13 @@ TEST(TargetEstimator, SplitBlobOfOneObjectIsMerged)
+ 
+ TEST(TargetEstimator, FiltersByShapeAndConfidence)
+ {
+-  TargetEstimator est({"red", "triangle", 0.5});
++  TargetEstimator est({"red", "triangle", 0.5, ""});
+   est.addFrame({obs("red", 0.45, -0.15, 0.9, "cube")});
+   EXPECT_EQ(est.framesMatched(), 0);
+-  TargetEstimator low({"red", "", 0.5});
++  TargetEstimator low({"red", "", 0.5, ""});
+   low.addFrame({obs("red", 0.45, -0.15, 0.2)});
+   EXPECT_EQ(low.framesMatched(), 0);
+-  TargetEstimator any({"RED", "", 0.5});   // 대소문자 무시
++  TargetEstimator any({"RED", "", 0.5, ""});   // 대소문자 무시
+   any.addFrame({obs("red", 0.45, -0.15)});
+   EXPECT_EQ(any.framesMatched(), 1);
+ }
+@@ -84,3 +84,26 @@ TEST(OccupantsNear, FindsOtherObjectInZoneButNotTheTarget)
+   // 목표가 이미 그 구역에 있으면 목표 자신은 점유로 치지 않는다
+   EXPECT_TRUE(occupantsNear({obs("green", 0.60, 0.35)}, zone, 0.06, Vec3{0.60, 0.35, 0.77}).empty());
+ }
++
++TEST(TargetEstimator, SelectsByIdIgnoringColor)
++{
++  // 손짓으로 고른 물체: 같은 색이 둘 있어도 이름(id)으로 하나만 고른다 -> 모호하지 않음
++  auto named = [](const std::string & id, const std::string & color, double x, double y) {
++      Observation o = obs(color, x, y);
++      o.id = id;
++      return o;
++    };
++  TargetQuery q;
++  q.id = "red_cube_2";
++  TargetEstimator est(q);
++  for (int i = 0; i < 5; ++i) {
++    est.addFrame({named("red_cube_1", "red", 0.0, 0.45), named("red_cube_2", "red", 0.45, 0.0)});
++  }
++  const Estimate e = est.estimate(5, 0.005);
++  ASSERT_EQ(e.status, EstimateStatus::OK);
++  EXPECT_NEAR(e.mean.x, 0.45, 1e-9);
++  EXPECT_EQ(e.id, "red_cube_2");
++  TargetEstimator missing(TargetQuery{"", "", 0.5, "blue_cube"});
++  missing.addFrame({named("red_cube_1", "red", 0.0, 0.45)});
++  EXPECT_EQ(missing.framesMatched(), 0);
++}
+diff --git a/aris3_voice/aris3_voice/command_parser.py b/aris3_voice/aris3_voice/command_parser.py
+index bcb2a11..9b41f6a 100644
+--- a/aris3_voice/aris3_voice/command_parser.py
++++ b/aris3_voice/aris3_voice/command_parser.py
+@@ -1,11 +1,13 @@
+ """한국어 음성 명령 -> 구조화 명령 (action, color, shape).
+ 
+ 출처: MARK1 command_parser v1.2 (etc/mark1_voice_controller, 브랜치 feat/mark1-voice-controller)
+-ARIS3 변경 (2026-11-08):
++ARIS3 변경 (2026-11-08, 11-09):
+   - 작업 물체가 정육면체뿐이라 물체를 색으로 고른다 -> PICK 은 **색 필수, 도형 선택**
+     (MARK1 은 도형 필수·색 선택이었음)
+   - 노랑(yellow) 추가, '큐브/정육면체/네모/사각형' -> cube
+   - Whisper 오인식 보정 표와 '지워줘'(모호) 처리는 MARK1 그대로
++  - 지시어 「이거/그거/저거」(화면에서 고른 물체), 「저기/여기/거기」(화면에서 고른 자리).
++    지금은 마우스 클릭, 이후 손짓이 가리킨 것을 쓴다. 실제 물체·자리 확인은 GUI 가 한다
+ 
+ ROS 에 의존하지 않는 순수 함수라서 단위 시험(test/test_command_parser.py)에서 바로 쓴다.
+ """
+@@ -38,6 +40,10 @@ SHAPE_WORDS = {
+ }
+ 
+ PLACE_WORDS = ["내려놔", "내려놓", "놓아줘", "놔줘", "놓으", "돌려놔", "돌려놓", "원래대로"]
++
++# 지시어: 화면에서 (지금은 마우스 클릭, 이후 손짓으로) 고른 물체·자리를 가리킨다 (2026-11-09)
++OBJECT_DEIXIS = ["이거", "이것", "이걸", "그거", "그것", "그걸", "저거", "저것", "저걸"]
++PLACE_DEIXIS = ["저기", "여기", "거기", "그자리", "이자리", "저자리", "그곳", "이곳", "저곳"]
+ PICK_WORDS = ["집어", "집으", "집고", "잡아", "잡으", "잡고", "들어", "옮겨"]
+ 
+ 
+@@ -61,16 +67,25 @@ def parse_command(text):
+     norm = normalize_text(text)
+     color = _first_match(norm, COLOR_WORDS)
+     shape = _first_match(norm, SHAPE_WORDS)
++    ref_object = any(w in norm for w in OBJECT_DEIXIS)
++    ref_place = any(w in norm for w in PLACE_DEIXIS)
++    if ref_place and not color:
++        # 「저기로 옮겨줘」: 무엇을 말하지 않고 자리만 말하면 화면에서 고른 물체를 옮긴다
++        ref_object = True
+     action = ""
+     ambiguous = False
+-    if any(w in norm for w in PLACE_WORDS):        # PLACE 를 먼저 본다 ("들어"보다 "내려놔" 우선)
++    if ref_place and (color or ref_object):
++        # 「이거 저기로 옮겨줘」「파란 거 저기 놔줘」: 물체와 자리가 다 있으면 옮기기(pick -> place)
++        action = "pick"
++    elif any(w in norm for w in PLACE_WORDS):      # PLACE 를 먼저 본다 ("들어"보다 "내려놔" 우선)
+         action = "place"
+     elif any(w in norm for w in PICK_WORDS):
+         action = "pick"
+-    elif "지워줘" in norm and (color or shape):
++    elif "지워줘" in norm and (color or shape or ref_object):
+         # '집어줘' 의 오인식일 수도, 진짜 '지워줘' 일 수도 있다 -> 자동으로 정하지 않는다
+         ambiguous = True
+     return {"action": action, "color": color, "shape": shape, "ambiguous": ambiguous,
++            "ref_object": ref_object, "ref_place": ref_place,
+             "original_text": text, "normalized_text": norm}
+ 
+ 
+@@ -79,11 +94,13 @@ def validate_command(cmd, known_colors=None):
+     if cmd["ambiguous"]:
+         return False, "모호한 명령입니다. 다시 말씀해 주세요."
+     if cmd["action"] == "pick":
++        if cmd.get("ref_object") and not cmd["color"]:
++            return True, "PICK 명령 생성 (화면에서 고른 물체" + (" -> 화면에서 고른 자리)" if cmd.get("ref_place") else ")")
+         if not cmd["color"]:
+-            return False, "집을 물체의 색이 지정되지 않았습니다."
++            return False, "집을 물체의 색이 지정되지 않았습니다. (「이거」 라고 하려면 화면에서 먼저 고르세요)"
+         if known_colors is not None and cmd["color"] not in known_colors:
+             return False, f"작업 공간에 없는 색입니다: {cmd['color']}"
+-        return True, "PICK 명령 생성"
++        return True, "PICK 명령 생성" + (" (화면에서 고른 자리로)" if cmd.get("ref_place") else "")
+     if cmd["action"] == "place":
+         return True, "PLACE 명령 생성 (집었던 자리에 놓기)"
+     return False, "지원하지 않는 명령입니다."
+diff --git a/aris3_voice/aris3_voice/voice_node.py b/aris3_voice/aris3_voice/voice_node.py
+index 91a8c64..6f28e90 100644
+--- a/aris3_voice/aris3_voice/voice_node.py
++++ b/aris3_voice/aris3_voice/voice_node.py
+@@ -146,6 +146,8 @@ class VoiceNode(Node):
+         valid, why = validate_command(cmd, self.known) if text else (False, note or '음성이 인식되지 않았습니다')
+         out = VoiceCommand(text=text, normalized_text=cmd['normalized_text'], action=cmd['action'],
+                            color=cmd['color'], shape=cmd['shape'], valid=valid, message=why,
++                           refers_selected_object=bool(cmd['ref_object']),
++                           refers_selected_place=bool(cmd['ref_place']),
+                            stt_time_s=float(stt_time))
+         out.stamp = self.get_clock().now().to_msg()
+         self.pub_cmd.publish(out)
+diff --git a/aris3_voice/test/test_command_parser.py b/aris3_voice/test/test_command_parser.py
+index fb67bf4..84764e2 100644
+--- a/aris3_voice/test/test_command_parser.py
++++ b/aris3_voice/test/test_command_parser.py
+@@ -19,6 +19,14 @@ CASES = [
+     ("빨간 큐브 지워줘", "", "red", "cube", False),              # 모호
+     ("초록 큐브 집어줘", "pick", "green", "cube", False),        # 작업 공간에 없는 색
+     ("안녕하세요", "", "", "", False),
++    # 지시어 (화면 클릭·손짓으로 고른 물체/자리)
++    ("이거 저기로 옮겨줘", "pick", "", "", True),
++    ("이거 집어줘", "pick", "", "", True),
++    ("파란 큐브 저기로 옮겨줘", "pick", "blue", "cube", True),
++    ("노란 거 여기 놔줘", "pick", "yellow", "", True),
++    ("저기로 옮겨줘", "pick", "", "", True),                 # 무엇을 말하지 않음 -> 화면에서 고른 큐브
++    ("여기 놔줘", "pick", "", "", True),
++    ("옮겨줘", "pick", "", "", False),                       # 무엇도 어디도 없음
+ ]
+ 
+ 
+@@ -27,3 +35,14 @@ def test_parse(text, action, color, shape, valid):
+     cmd = parse_command(text)
+     ok, _ = validate_command(cmd, KNOWN)
+     assert (cmd["action"], cmd["color"], cmd["shape"], ok) == (action, color, shape, valid)
++
++
++def test_deixis_flags():
++    cmd = parse_command("이거 저기로 옮겨줘")
++    assert cmd["ref_object"] and cmd["ref_place"]
++    cmd = parse_command("저기로 옮겨줘")
++    assert cmd["ref_object"] and cmd["ref_place"]
++    cmd = parse_command("파란 큐브 저기로 옮겨줘")
++    assert not cmd["ref_object"] and cmd["ref_place"]
++    cmd = parse_command("파란 큐브 집어줘")
++    assert not cmd["ref_object"] and not cmd["ref_place"]
+# ARIS3 개발 방향 확정 (2026-11-08)
+
+기준 문서: `etc/e0509_manual/ARIS3_전체개발_마스터플랜.html`, `ARIS3_상세설계_V0.2_전체아키텍처.html`
+이 문서는 두 문서의 목표를 유지하면서 **현재 저장소 상태를 반영해 확정한 결정**과 다음 작업 순서를 적는다.
+
+## 1. 확정한 결정
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 경로 계획·실행 | **MoveIt 2** (`aris3_moveit_config`) → Gazebo `arm_controller` (JointTrajectoryController) | 마스터플랜·상세설계 그대로. 충돌 검사·경로 계획 확보 |
+| Task Manager 이동 | 기존 두산 서비스(move_line 등) 백엔드는 e0509_sim 용으로 남기고, **MoveIt 백엔드를 추가** (`RobotClient` 교체) | 이미 검증된 상태 머신·실패 처리 재사용 |
+| 작업 물체 | **빨강·파랑·노랑 정육면체 3개** (한 변 5 cm), 로봇 중심 반경 0.45 m의 12시(+y) 빨강, 3시(+x) 파랑, 9시(−x) 노랑 | 팀 결정 (2026-11-08). **도형은 정육면체 하나뿐 → 물체는 색으로만 구분**. 원·삼각은 쓰지 않음 (도형 생성기는 지원은 하므로 필요해지면 `object_layout.csv` 만 바꾸면 됨) |
+| 작업 공간 | 탁자 윗면 z = 0.75 m, 로봇 베이스가 탁자 위 (e0509_sim 과 같은 높이) | 실물 작업 셀과 비슷한 배치 |
+| 음성 PLACE | "내려놔 / 돌려놔 / 원래대로" = **집었던 원래 자리**에 놓기 | MARK1 파서에 위치 단어가 없음 |
+| 음성 PICK | **색 필수, 도형 선택** ("파란 거 집어줘", "노란 큐브 집어줘"). 조건에 맞는 물체가 여러 개면 실행하지 않고 되묻기 | 모양이 모두 같아 도형으로는 고를 수 없음. 현재 Task Manager 규칙(색 필수)과 같음 |
+| 파지 | **실제 마찰 파지가 기본**, 시연 안정용 '손에 붙이기(DetachableJoint)'는 launch 옵션. 두 결과는 따로 기록 | 마스터플랜 13단계(물리 파지 검증) 유지 |
+| 음성 경로 | ~~Windows MARK1 → TCP~~ → **Windows PC 쓰지 않음.** Ubuntu `aris3_voice` 노드(마이크·Whisper·해석) + GUI 「누르고 말하기」 버튼 | MARK1 의 Whisper 설정·파서를 옮겨 씀 (2026-11-08 결정) |
+| 관제 GUI | **하나의 PyQt5 화면 `aris3_gui`** (시뮬레이션·실물). 마스터플랜 07장 목업 배치. 기존 `e0509_manual/gui.py`·안전 코드 재사용 | C++ 대신 Python: 기존 코드 재사용·음성과 같은 언어 (2026-11-08 결정) |
+
+## 2. 현재 상태 (마스터플랜 GATE 기준, 2026-11-08 직접 확인)
+
+| GATE | 상태 | 근거 |
+|---|---|---|
+| 1 관절 제어 | ✅ | 물리 실행 중 joint_1 0.5 rad 명령 → 도달 후 자세 유지 |
+| 2 그리퍼 개폐 | ✅ (개폐만) | 0.8 닫기 / 0.0 열기, 손가락 4개 mimic 추종. 물체 파지는 미검증 |
+| 3 인식 | 🔶 | 큐브 3개 + Top View 카메라 15 Hz. **검출 노드(aris3_vision) 없음** |
+| 4 Pick & Place | ✅ (보조 파지) / 🔶 (마찰 파지) | Task Manager + MoveIt: 큐브 3개 → 구역 A/B/C, 오차 0.4~3.7 mm. 순수 마찰 파지는 옮기다 미끄러져 놓기 오차 36.8 mm |
+| 5 음성 | 🔶 | `aris3_voice` 노드 + GUI 연동, 문장 입력 → 작업 실행까지 성공. **실제 마이크 인식률 측정 전** |
+| 도전 GUI | 🔶 | `aris3_gui` 1차: 시뮬레이션 모드 전체 흐름 동작 (「노란 큐브 집어줘」 → 구역 A 0.2 mm) |
+
+## 3. 다음 작업 순서
+
+1. **Task Manager MoveIt 백엔드** — `RobotClient` 인터페이스를 추상화하고 `MoveItRobotClient` 추가
+   (move_group_interface, 접근/하강은 Pilz LIN 직선 이동). 고정 좌표로 집기·놓기 시퀀스 확인.
+2. **그리퍼 어댑터** — `/aris3/gripper/command` 를 Gazebo `gripper_position_controller` 에 연결
+   (aris3_control 또는 aris3_sim_bridge). 손가락 위치·정지로 `holding` 판정.
+3. **마찰 파지 검증** — 물체 질량·마찰·그리퍼 힘 조정. 실패 시 DetachableJoint 보조 옵션.
+4. **aris3_vision (C++ OpenCV)** — Top View 영상 → 색·도형 → 탁자 평면 투영 → `/aris3/detected_objects`.
+   카메라가 높아(탁자 위 2 m) 물체가 작게 보임 → 카메라 높이·화각 재조정 검토.
+5. **aris3_voice 브리지** — TCP :5000 서버 (MARK1 JSON 수신, `{"status":"received"}` 응답) → `ExecuteTask`.
+6. 통합 시연 → Qt GUI (도전).
+
+## 4. 맞춰야 할 계약 (인터페이스)
+
+| | MARK1 음성 | 현재 ExecuteTask (Task Manager) | 맞추는 방향 |
+|---|---|---|---|
+| 동작 | `pick` / `place` 따로 | `pick_place` 한 번에 | `task_type` 에 `pick`, `place` 추가 (메시지 필드 변경 없음) |
+| 대상 | `target`(도형) 필수, `color` 선택 | `target_color` 필수 | **MARK1 파서를 색 필수·도형 선택으로 변경** (Task Manager 는 그대로) |
+| 놓는 곳 | 없음 (원래 자리) | `destination` 구역 필수 | `place` 의 `destination` 이 비면 집었던 자리 |
+
+**MARK1 파서 수정 필요 (2026-11-08 시험: 현재 물체 표현 0/3):**
+- 색에 '노란/노랑/노란색 → yellow' 추가
+- '큐브/정육면체/네모/사각형' → `cube` (도형은 선택 사항이므로 없어도 됨)
+- PICK 유효 조건: 도형 필수 → **색 필수**
+
+메시지 정의를 바꾸게 되면 `aris3_interfaces` 를 쓰는 모든 패키지를 다시 빌드한다.
+
+## 5. 실행 방법 (현재)
+
+```bash
+# 터미널 1: Gazebo (탁자 + 로봇 + 큐브 3개 + 카메라, 팔 궤적 컨트롤러)
+ros2 launch aris3_bringup simulation.launch.py
+# 터미널 2: MoveIt 2 (rviz:=true 로 MotionPlanning 패널)
+ros2 launch aris3_moveit_config move_group.launch.py
+# 터미널 3: 연동 시험 (home → 파란 큐브 위 → home)
+ros2 run aris3_moveit_config moveit_smoke_test.py --ros-args -p use_sim_time:=true
+```
+
+변경 전 원본 파일: `backup/20261108_before_table/` (README 참고)

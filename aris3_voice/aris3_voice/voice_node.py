@@ -347,10 +347,11 @@ class VoiceNode(Node):
         llm = self.llm.parse(to_parse)
         if llm is None:
             return rule, '낱말 표 (LLM 실패)'
-        if (llm['action'], llm['color'], llm['target_color']) != (rule['action'], rule['color'], rule['target_color']):
+        keys = ('action', 'color', 'target_color', 'number', 'target_number')
+        if tuple(llm[k] for k in keys) != tuple(rule[k] for k in keys):
             # 둘이 다르게 읽은 문장은 로그에 남긴다 (낱말 표를 보완하거나 LLM 을 점검할 때 참고)
-            self.get_logger().info(f'해석 차이 「{to_parse}」: LLM {llm["action"]}/{llm["color"] or "-"} · '
-                                   f'낱말 표 {rule["action"] or "-"}/{rule["color"] or "-"}')
+            self.get_logger().info(f'해석 차이 「{to_parse}」: LLM {llm["action"]}/{llm["color"] or "-"}/{llm["number"]}번 · '
+                                   f'낱말 표 {rule["action"] or "-"}/{rule["color"] or "-"}/{rule["number"]}번')
         return llm, f'LLM {self.llm.last_latency:.1f}s'
 
     def _publish(self, text, to_parse, stt_time, note=''):
@@ -362,11 +363,13 @@ class VoiceNode(Node):
                            refers_selected_object=bool(cmd['ref_object']),
                            refers_selected_place=bool(cmd['ref_place']),
                            target_color=cmd.get('target_color', ''),
+                           number=int(cmd.get('number', 0)), target_number=int(cmd.get('target_number', 0)),
                            stt_time_s=float(stt_time))
         out.stamp = self.get_clock().now().to_msg()
         self.pub_cmd.publish(out)
         self.get_logger().info(f'「{text}」 -> action={cmd["action"]} color={cmd["color"]} '
-                               f'target={cmd.get("target_color", "") or "-"} '
+                               f'number={cmd.get("number", 0)} '
+                               f'target={cmd.get("target_color", "") or "-"} target_number={cmd.get("target_number", 0)} '
                                f'shape={cmd["shape"]} valid={valid} ({why}) {stt_time:.2f}s')
 
 

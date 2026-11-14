@@ -43,6 +43,16 @@ bool isArisLog(const std::string & level, const std::string & node, const std::s
   return node == "gui";
 }
 
+bool isIgnoredSpeechLog(const std::string & node, const std::string & text)
+{
+  if (node.rfind("aris3_voice", 0) != 0) {return false;}
+  // 음성 노드(voice_node.py)가 명령으로 받지 않은 말에 붙이는 문구
+  for (const char * mark : {"호출어(아리스) 없음, 무시", "ARIS 가 말하는 중에 들린 말이라 무시"}) {
+    if (text.find(mark) != std::string::npos) {return true;}
+  }
+  return false;
+}
+
 const std::vector<std::string> & stageNames()
 {
   static const std::vector<std::string> names = {
@@ -153,14 +163,43 @@ std::string colorKo(const std::string & color)
   return it == k.end() ? std::string() : it->second;
 }
 
-std::string objectKo(const std::string & color, const std::string & shape)
+std::string objectKo(const std::string & color, const std::string & shape, int number)
 {
   static const std::map<std::string, std::string> k{{"cube", "큐브"}, {"triangle", "삼각형"}, {"circle", "원"}};
   const auto it = k.find(shape);
   const std::string c = colorKo(color);
   if (c.empty() && it == k.end()) {return "고르신 물체";}
   const std::string s = it == k.end() ? std::string("큐브") : it->second;   // 작업 공간의 물체는 큐브
-  return c.empty() ? s : c + " " + s;
+  if (c.empty()) {return s;}
+  // 큐브 번호 (2026-11-14): 같은 색이 여럿일 때 「1번 파란색 큐브」
+  return (number > 0 ? std::to_string(number) + "번 " : std::string()) + c + " " + s;
+}
+
+int cubeNumberFromId(const std::string & id)
+{
+  // 맨 끝의 "_숫자" 만 번호로 본다 ("blue_cube_2" -> 2). 숫자가 없거나 "_" 가 앞에 없으면 0
+  const auto us = id.rfind('_');
+  if (us == std::string::npos || us + 1 >= id.size()) {return 0;}
+  int n = 0;
+  for (std::size_t i = us + 1; i < id.size(); ++i) {
+    if (id[i] < '0' || id[i] > '9' || n > 99) {return 0;}
+    n = n * 10 + (id[i] - '0');
+  }
+  return n;
+}
+
+int pickCubeIndex(const std::vector<std::string> & ids, int number)
+{
+  if (ids.empty()) {return -1;}
+  if (number <= 0) {                                  // 번호를 말하지 않음: 하나뿐일 때만 정해진다
+    return ids.size() == 1 ? 0 : -2;
+  }
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    if (cubeNumberFromId(ids[i]) == number) {return static_cast<int>(i);}
+  }
+  // 그 색이 하나뿐이면 이름에 번호가 없다 ("blue_cube") - 「1번 파란색 큐브」 는 그 큐브
+  if (ids.size() == 1 && number == 1 && cubeNumberFromId(ids[0]) == 0) {return 0;}
+  return -1;
 }
 
 std::vector<double> searchSweepDeg()
@@ -178,24 +217,106 @@ std::vector<std::string> missingColors(const std::vector<std::string> & want, co
   return out;
 }
 
-std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
-  bool ref_place, const std::string & target_color)
+bool tooFar(double x_mm, double y_mm, double max_mm)
 {
-  const std::string obj = objectKo(color, shape);
+  return std::hypot(x_mm, y_mm) > max_mm;
+}
+
+std::vector<std::vector<std::array<double, 2>>> reachBoundaryPx(const std::array<double, 9> & H, double radius_mm,
+  int n, double max_px)
+{
+  std::vector<std::vector<std::array<double, 2>>> out;
+  // 3x3 역행렬 (여인수). 행렬식이 0 에 가까우면 옮길 수 없다
+  const double a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7], i = H[8];
+  const double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  if (std::abs(det) < 1e-12 || n < 3 || radius_mm <= 0.0) {return out;}
+  const std::array<double, 9> inv{
+    (e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+    (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+    (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det};
+  // 로봇 (x, y) mm -> 픽셀. w 의 부호가 작업 공간(로봇 앞쪽) 점과 다르면 영상 평면 뒤 = 보이지 않는 점
+  const auto project = [&](double x, double y, double & u, double & v) {
+      const double w = inv[6] * x + inv[7] * y + inv[8];
+      u = (inv[0] * x + inv[1] * y + inv[2]) / w;
+      v = (inv[3] * x + inv[4] * y + inv[5]) / w;
+      return w;
+    };
+  double ru = 0.0, rv = 0.0;
+  const double w_ref = project(radius_mm * 0.7, 0.0, ru, rv);
+  std::vector<std::array<double, 2>> cur;
+  bool all_ok = true;
+  for (int k = 0; k < n; ++k) {
+    const double th = 2.0 * M_PI * k / n;
+    double u = 0.0, v = 0.0;
+    const double w = project(radius_mm * std::cos(th), radius_mm * std::sin(th), u, v);
+    const bool ok = w * w_ref > 0.0 && std::abs(w) > 1e-3 * std::abs(w_ref) && std::isfinite(u) && std::isfinite(v) &&
+      std::abs(u) < max_px && std::abs(v) < max_px;
+    if (ok) {
+      cur.push_back({u, v});
+    } else {
+      all_ok = false;
+      if (cur.size() > 1) {out.push_back(cur);}
+      cur.clear();
+    }
+  }
+  if (all_ok && !cur.empty()) {
+    cur.push_back(cur.front());                        // 원 전체가 보임: 닫는다
+    out.push_back(cur);
+  } else if (cur.size() > 1) {
+    // 끝 조각이 첫 조각과 이어져 있으면(0° 를 지나는 호) 하나로 붙인다
+    if (!out.empty() && out.front().size() > 1) {
+      double u0 = 0.0, v0 = 0.0;
+      const double w0 = project(radius_mm, 0.0, u0, v0);
+      if (w0 * w_ref > 0.0 && std::abs(out.front().front()[0] - u0) < 1e-6 && std::abs(out.front().front()[1] - v0) < 1e-6) {
+        cur.insert(cur.end(), out.front().begin(), out.front().end());
+        out.front() = cur;
+        return out;
+      }
+    }
+    out.push_back(cur);
+  }
+  return out;
+}
+
+bool tooClose(double x_mm, double y_mm, double min_mm)
+{
+  return std::hypot(x_mm, y_mm) < min_mm;
+}
+
+std::string tooCloseReply(const std::string & what)
+{
+  return what + josa(what, "은", "는") + " 로봇에 너무 가까워서 팔이 닿지 않아요.";
+}
+
+std::string tooFarReply(const std::string & what)
+{
+  return what + josa(what, "은", "는") + " 너무 멀어서 팔이 닿지 않아요.";
+}
+
+std::string voiceReply(const std::string & action, const std::string & color, const std::string & shape,
+  bool ref_place, const std::string & target_color, int number, int target_number)
+{
+  const std::string obj = objectKo(color, shape, number);
   if (action == "pick" && !target_color.empty()) {   // 쌓기: 받침 큐브 위에 올리기
-    const std::string base = objectKo(target_color, "cube");
+    const std::string base = objectKo(target_color, "cube", target_number);
     return "네, " + obj + josa(obj, "을", "를") + " " + base + " 위에 올립니다.";
   }
   if (action == "pick") {
     return ref_place ? "네, " + obj + josa(obj, "을", "를") + " 집어서 고르신 자리로 옮깁니다." :
            "네, " + obj + josa(obj, "을", "를") + " 잡습니다.";
   }
+  if (action == "place" && !target_color.empty()) {  // 올려놓기 (2026-11-14): 들고 있는 큐브를 받침 위에
+    return "네, 들고 있는 큐브를 " + objectKo(target_color, "cube", target_number) + " 위에 올려놓겠습니다.";
+  }
   if (action == "place") {return ref_place ? "네, 고르신 자리에 내려놓겠습니다." : "네, 여기에 내려놓겠습니다.";}
+  if (action == "find") {return "네, " + obj + josa(obj, "을", "를") + " 찾아볼게요.";}   // 찾기 (2026-11-14)
+  if (action == "scan") {return "네, 큐브를 찾아볼게요.";}   // 탐색 (2026-11-14): 세 가지 색이 보일 때까지
   if (action == "home") {return "네, 홈 자세로 돌아갑니다.";}
   if (action == "stop") {return "네, 멈춥니다.";}
   if (action == "resume") {return "네, 이어서 하겠습니다.";}
   if (action == "power_on") {return "네, 가동합니다.";}
   if (action == "disconnect") {return "네, 연결을 해제합니다.";}
+  if (action == "gripper_open") {return "네, 그리퍼를 엽니다.";}
   return "잘 못 알아들었어요. 다시 말씀해 주세요.";
 }
 

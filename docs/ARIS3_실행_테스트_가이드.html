@@ -321,10 +321,15 @@ ln -sfn ~/workspace/team/RobotTeamProject1/aris3_gesture ~/ros2_ws/src/aris3_ges
 colcon build --symlink-install --packages-select aris3_gesture aris3_gui
 </code></pre>
 <p>실행:</p>
-<pre><code class="language-bash">python3 scripts/aris3_usb_camera_pub.py            # 위쪽 카메라
-python3 scripts/aris3_color_detector.py            # 큐브 색 검출 (픽셀)
+<pre><code class="language-bash">~/venvs/aris3_camera/bin/python scripts/aris3_realsense_pub.py   # 위쪽 카메라 컬러 + 깊이 (2026-11-13, 층 계산용)
+#   (깊이 없이 컬러만: python3 scripts/aris3_usb_camera_pub.py - 둘을 같이 띄우지 않음)
+python3 scripts/aris3_color_detector.py --show     # 큐브 색 검출 + 이름(red_cube_1 ...)·층(1층, 2층 ...) OpenCV 창
 ros2 run aris3_gui control_station --mode real     # 음성·손짓 노드도 함께 뜸 (--no-voice / --no-gesture)
 </code></pre>
+<p>카메라 가상환경(처음 한 번): <code>python3 -m venv --system-site-packages --without-pip ~/venvs/aris3_camera &amp;&amp; python3 -m pip --python ~/venvs/aris3_camera/bin/python install pyrealsense2</code></p>
+<p><strong>층 (2026-11-13)</strong>: 위에서는 맨 위 큐브 색만 보이므로, 깊이로 잰 탁자 위 높이 ÷ 36 mm 로 층을 센다(아래 큐브 색은 모름).
+같은 색이 여럿이면 <code>red_cube_1</code>, <code>red_cube_2</code> 처럼 번호가 붙는다. 집기는 그 층 높이(집는 높이 + (층-1) x 40 mm)로 내려가고,
+쌓기는 받침 층 수만큼 높이 놓는다. 4층을 넘게 재지면 거부한다. 깊이가 없으면 예전처럼 1층 높이.</p>
 <p>기록: <code>/tmp/aris3_gui_voice.log</code>, <code>/tmp/aris3_gui_gesture.log</code>. 전제: 카메라 보정 4점 이상, 「조작 허용」 체크.</p>
 <p><strong>손짓</strong> (카메라 화면에 분홍 점 = 검지 끝, 청록 고리 = 멈춘 시간)</p>
 <div class="table-wrap"><table>

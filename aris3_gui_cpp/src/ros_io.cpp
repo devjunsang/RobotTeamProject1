@@ -109,6 +109,7 @@ GuiNode::GuiNode(const std::string & robot_ns, const std::string & camera_topic)
   subs_.push_back(create_subscription<rcl_interfaces::msg::Log>("/rosout", 100,
     [this](rcl_interfaces::msg::Log::SharedPtr m) {
       if (m->name == get_name()) {return;}       // 자기 로그는 이미 화면에 넣었음
+      if (isIgnoredSpeechLog(m->name, m->msg)) {return;}   // 「아리스」 없이 들린 말은 화면에 넣지 않는다 (2026-11-14)
       addLog(levelName(m->level), m->name, m->msg);
     }, o));
 

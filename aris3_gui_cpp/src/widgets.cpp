@@ -4,6 +4,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QMouseEvent>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QPixmap>
 
@@ -120,6 +121,19 @@ void CameraView::setPixelMarks(const std::optional<std::array<double, 2>> & plac
   calib_px_ = calib_px;
 }
 
+// 닿는 범위 경계선의 진하기 (1 = 불투명): 선은 흐리게 (금색·빨강 모두 20 %), 글자는 조금 더 보이게
+constexpr double kReachLineOpacity = 0.20;
+constexpr double kReachLabelOpacity = 0.45;
+
+void CameraView::setReachBoundary(const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label,
+  const std::vector<std::vector<std::array<double, 2>>> & min_lines, const QString & min_label)
+{
+  reach_lines_ = lines;
+  reach_label_ = label;
+  reach_min_lines_ = min_lines;
+  reach_min_label_ = min_label;
+}
+
 void CameraView::setPointer(const std::optional<std::array<double, 2>> & tip, double progress, const QString & text)
 {
   pointer_ = tip;
@@ -185,12 +199,53 @@ void CameraView::paintEvent(QPaintEvent *)
       // 픽셀 검출 (색 검출 스크립트): 중심과 넓이로 정사각 상자
       for (const auto & o : px_) {
         const double half = std::sqrt(std::max(1.0, static_cast<double>(o.size_px))) * k / 2 + 4;
+        // 이름 + 층 (깊이로 계산, 0 = 모름이면 생략) + 큐브 각도 + 신뢰도. 예: 「red_cube_1 · 2층 · 42° 0.93」
+        // 각도 (2026-11-13): 영상에서 큐브 면 방향 [0, 90)° - 브리지가 이 각도로 그리퍼(J6)를 맞춰 집는다
+        const auto & q = o.pose.pose.orientation;
+        const double ang = std::atan2(q.z, q.w) * 2.0 * 180.0 / M_PI;
         const QString label = QString::fromStdString(o.id.empty() ? o.color : o.id) +
+          (o.level > 0 ? QStringLiteral(" · %1층").arg(o.level) : QString()) +
+          QStringLiteral(" · %1°").arg(ang, 0, 'f', 0) +
           QString(" %1").arg(o.confidence, 0, 'f', 2);
         drawBox(p, QPointF(r.x() + o.pose.pose.position.x * k, r.y() + o.pose.pose.position.y * k), half, label,
           theme::kCyan, false, !o.id.empty() && o.id == selected_id_);
       }
     }
+    // 닿는 범위 경계선 (2026-11-14): 금색 = 먼 쪽 한계(이 선 바깥은 닿지 않음), 빨강 = 가까운 쪽 한계(이 선 안쪽은
+    // 로봇에 너무 가까워 관절 한계에 걸림). 둘 다 흐린 점선으로, 영상 안쪽만 그린다 (사용자 결정: 20 % 만 보이게)
+    const auto drawReach = [&](const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label,
+        const QColor & color, bool label_below) {
+        if (lines.empty()) {return;}
+        p.save();
+        p.setClipRect(r);
+        p.setBrush(Qt::NoBrush);
+        std::optional<QPointF> top;                  // 글자를 붙일 자리: 영상 안에서 가장 위쪽 점
+        for (const auto & line : lines) {
+          QPolygonF poly;
+          for (const auto & q : line) {
+            const QPointF pt(r.x() + q[0] * k, r.y() + q[1] * k);
+            poly << pt;
+            if (r.contains(pt) && (!top || pt.y() < top->y())) {top = pt;}
+          }
+          p.setOpacity(kReachLineOpacity);
+          p.setPen(QPen(color, 2, Qt::DashLine));
+          p.drawPolyline(poly);
+        }
+        p.setOpacity(kReachLabelOpacity);            // 글자는 읽을 수 있을 만큼만
+        if (top && !label.isEmpty()) {
+          const QRectF box = QFontMetricsF(p.font()).boundingRect(label).adjusted(-4, -2, 4, 2);
+          // 먼 쪽 선은 글자를 선 아래(안쪽)에, 가까운 쪽 선은 선 위(바깥쪽)에 둔다 - 쓸 수 있는 쪽에 보이게
+          const double y = label_below ? top->y() + 6 : top->y() - box.height() - 6;
+          const QPointF at(std::clamp(top->x() - box.width() / 2, r.left() + 4, r.right() - box.width() - 4),
+            std::clamp(y, r.top() + 4, r.bottom() - box.height() - 4));
+          p.fillRect(QRectF(at, box.size()), QColor(0, 0, 0, 170));
+          p.setPen(color);
+          p.drawText(QRectF(at, box.size()), Qt::AlignCenter, label);
+        }
+        p.restore();
+      };
+    drawReach(reach_lines_, reach_label_, theme::kGold, true);
+    drawReach(reach_min_lines_, reach_min_label_, QColor("#ff3b3b"), false);
     // 실물: 놓을 자리 픽셀(시안), 보정 ① 기억 픽셀(노랑)
     if (place_px_) {drawPlaceMarker(p, QPointF(r.x() + (*place_px_)[0] * k, r.y() + (*place_px_)[1] * k), 12, theme::kCyan);}
     if (calib_px_) {drawPlaceMarker(p, QPointF(r.x() + (*calib_px_)[0] * k, r.y() + (*calib_px_)[1] * k), 16, QColor("#ffea00"));}

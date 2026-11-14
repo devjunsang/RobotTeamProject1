@@ -2,12 +2,17 @@
 # 「손으로 가르쳐 주기」: ① 큐브 픽셀 기억 -> 조그로 그 큐브를 집는 자세까지 내림 -> ② 로봇 위치 기록, 4 점 이상.
 # 결과(점 개수·오차·행렬)는 /aris3/real/state 의 calib_* 로 나온다.
 
-uint8 REMEMBER=0                  # ① (u, v) 가까운 색 검출 큐브의 지금 픽셀을 기억 (검출이 없으면 실패)
+uint8 REMEMBER=0                  # ① 탁자 블록 마커(ArUco 4X4_50)가 보이면 그 중심 픽셀 (2026-11-14, 여럿이면 (u, v) 에 가까운 것),
+                                  #    없으면 (u, v) 가까운 색 검출 큐브의 지금 픽셀을 기억 (둘 다 없으면 실패)
 uint8 RECORD=1                    # ② 지금 TCP (x, y, z) 를 기억한 픽셀과 짝지어 기록 (label 은 큐브 이름)
 uint8 REMOVE_LAST=2
 uint8 CLEAR=3
 uint8 SAVE=4                      # ~/.config/aris3/real_camera_calib.json
 uint8 LOAD=5
+uint8 AUTO_RECORD=6               # 블록 자동 보정점 (2026-11-14): 마커 블록을 지금 보정으로 찾아가 잡고, 손목 90° 돌려 두 번 닫아
+                                  # 가운데로 맞춘 TCP 와 홈에서 다시 잰 마커 픽셀을 자동 보정점으로 (지금 보정과 따로 모음).
+                                  # 바로 응답하고 진행은 상태 pick_*. 4 점 이상 모은 뒤 SAVE = 새 보정 (예전 파일 백업),
+                                  # REMOVE_LAST = 마지막 자동 보정점 삭제
 
 uint8 command
 float32 u                         # REMEMBER 에서만
