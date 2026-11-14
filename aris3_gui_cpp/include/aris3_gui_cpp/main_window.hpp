@@ -122,6 +122,8 @@ private:
   void pickAndPlace(const QString & heard = QString());
   // 쌓기 (2026-11-13): 고른 큐브(pick_px_)를 base_px 의 받침 큐브 위에 올린다 (브리지 PICK_AND_STACK)
   void stackRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name);
+  // 올려놓기 (2026-11-14): 지금 들고 있는 큐브를 받침 큐브 위에 놓는다 (「빨간 큐브 위로 올려놔」)
+  void placeOnRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name);
   // allow_search: 말한 색이 안 보이면 팔을 좌우로 돌려 찾는다 (찾은 뒤 다시 부를 때는 false - 무한 반복 방지)
   void realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool allow_search = true);
   void searchTick();                                    // 색 탐색 진행 (refreshReal 에서 주기마다)

@@ -37,6 +37,9 @@ listening.py (strip_wake_word, UtteranceSegmenter - 적응형 소음 문턱) pyt
 2026-11-12: 인식률 개선 - Whisper large-v3-turbo GPU (안 되면 CPU base), 명령 낱말 미리 알림(stt_prompt),
   잘못 적힌 호출어(아래스·RS)·정지(먹쳐·멈쳐) 받기, ARIS 가 말하는 중 녹음된 말은 문장 중간 호출어도 찾음,
   LLM 프롬프트에 실제 오인식 예(혐의로->홈) 추가. pytest 53개 (+ 실제 API 10개). 자세한 설명은 README.md.
+2026-11-14: 큐브 번호 - 「1번 파란색 큐브」 -> VoiceCommand.number, 쌓기 받침은 target_number (낱말 표 + LLM 스키마).
+2026-11-14: 올려놓기 (place + target_color: 「빨간 큐브 위로 올려놔」) · 찾기 (find: 「파란색 큐브 찾아」) 추가.
+  LLM 스키마의 정수 enum 은 실제 API 로 확인하지 못함 (시험한 키의 잔액 부족) - 거절되면 낱말 표로 떨어진다.
 
 [참고]
 - ARIS3의 첫 번째 목표는 Gazebo 물리 실행 중 E0509 관절 제어 성공이다.

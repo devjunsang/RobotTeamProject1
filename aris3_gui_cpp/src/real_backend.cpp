@@ -121,6 +121,10 @@ void RealBackend::sendAction(typename rclcpp_action::Client<A>::SharedPtr client
         node_->log("WARN", what + ": 취소됨 (정지)");
       } else {
         node_->log("WARN", what + ": " + (msg.empty() ? "실패" : msg));
+        // 닿지 않는 위치 (2026-11-14): 브리지가 거리로 거부했거나 컨트롤러가 NOT REACHABLE 로 거부 -> 말로 알린다
+        if (msg.find("닿지 않는 위치") != std::string::npos) {
+          node_->say("거기는 팔이 닿지 않아요.");
+        }
       }
     };
   client->async_send_goal(goal, opt);

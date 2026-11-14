@@ -634,6 +634,15 @@ class PickSequence:
         return self.pick_and_place(x, y, z_grasp, bx, by, lift=lift, name='쌓기', pick_lift=pick_lift,
                                    yaw=yaw, place_yaw=base_yaw, locate=locate)
 
+    def place_on(self, bx, by, z_grasp, base_level=1, base_yaw=None):
+        """지금 들고 있는 큐브를 (bx, by) 에 있는 받침 위에 올린다 (2026-11-14, 「빨간 큐브 위로 올려놔」).
+
+        집지 않고 놓기만 한다 (쌓기의 뒤쪽 절반). 놓는 높이 = 집는 높이 + 받침 층 x 큐브 높이 + 여유,
+        base_yaw: 받침 큐브 면 방향 - 들고 있는 큐브를 받침과 같은 각도로 놓는다 (None = 돌리지 않음).
+        """
+        lift = max(1, int(base_level)) * self.stack_mm + STACK_CLEAR_MM
+        return self.start('올려놓기', self._place_steps(bx, by, z_grasp, lift, yaw=base_yaw))
+
     def place_here(self, z_grasp):
         """지금 XY 에서 집는 높이(+2 mm) 로 내려 놓고 다시 올라온다."""
         p = self.link.posx

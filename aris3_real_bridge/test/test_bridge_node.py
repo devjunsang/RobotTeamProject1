@@ -757,3 +757,63 @@ def test_nearest_px_limit():
     assert nearest_px(objs, 90, 0).id == 'b'
     assert nearest_px(objs, 50, 50, max_dist=10) is None
     assert nearest_px([], 0, 0) is None
+
+
+# ---------------------------------------------------------------- 올려놓기 (2026-11-14)
+def test_place_on_puts_held_cube_on_base(env):
+    """올려놓기: 들고 있는 큐브를 지금 보이는 빨강 위(쌓기와 같은 높이 225 mm)에 놓는다. 집는 동작(닫기)은 없다."""
+    link, bridge, client = env
+    link.move_time = 0.02
+    calibrate(bridge)
+    pub = client.create_publisher(DetectedObjectArray, '/aris3/vision/detections_px', 10)
+    t0 = time.time()
+    while time.time() - bridge.px_stamp > 0.5 and time.time() - t0 < 3:
+        pub.publish(DetectedObjectArray(objects=[px_obj('red_cube', 'red', 20, 150)]))
+        time.sleep(0.05)
+    bridge.picker.holding = True
+    arm(client)
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PLACE_ON, place_u=22.0, place_v=148.0)
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert r.result.success, r.result.message
+    assert 'move 320 -50 225' in link.calls              # 빨강(20, 150) 위: 180 + 큐브 한 개(40) + 여유 3 + 놓기 2 mm
+    assert not any(c.startswith('grip') and c != 'grip 0' for c in link.calls)
+    assert r.result.holding == RealPickPlace.Result.HOLD_NO
+
+
+def test_place_on_refused_when_empty_or_base_hidden(env):
+    """올려놓기 거부: 그리퍼가 빈손이거나, 받침 큐브가 지금 보이지 않으면 움직이지 않는다."""
+    link, bridge, client = env
+    calibrate(bridge)
+    arm(client)
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PLACE_ON, place_u=20.0, place_v=150.0)
+    bridge.picker.holding = False
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert not r.result.success and '비어' in r.result.message
+    bridge.picker.holding = True
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert not r.result.success and '받침' in r.result.message
+    assert not any(c.startswith('move') for c in link.calls)
+
+
+# ---------------------------------------------------------------- 닿지 않는 위치 (2026-11-14)
+def test_pick_refused_when_cube_too_far(env):
+    """베이스에서 reach_max_mm 보다 먼 큐브는 출발 전에 거부하고, 결과 문장에 「닿지 않는 위치」 가 들어간다."""
+    from aris3_real_bridge.bridge_node import UNREACHABLE
+    link, bridge, client = env
+    calibrate(bridge)
+    arm(client)
+    x, y = bridge.calib.to_robot(100.0, 50.0)
+    bridge.set_parameters([rclpy.parameter.Parameter('reach_max_mm', value=float(math.hypot(x, y) - 10.0))])
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PICK, target_name='yellow', target_u=100.0, target_v=50.0)
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert not r.result.success and UNREACHABLE in r.result.message and 'yellow' in r.result.message
+    assert not any(c.startswith('move') for c in link.calls)
+
+
+def test_controller_unreachable_is_detected_in_log_lines():
+    """컨트롤러 경고 「... is NOT REACHABLE」 가 로봇 로그에 있으면 닿지 않는 위치로 본다."""
+    from aris3_real_bridge.bridge_node import controller_unreachable
+    assert controller_unreachable(['12:06:06 로봇 경고: [2/2/1206] [ERR] Pose(714.35mm, ...) is NOT REACHABLE'])
+    assert not controller_unreachable(['12:06:06 큐브 위 접근 높이로 (80 mm/s, 181 mm): 시작', ''])
+    assert not controller_unreachable([])
+

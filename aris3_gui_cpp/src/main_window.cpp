@@ -743,6 +743,11 @@ void MainWindow::onVoiceRun(bool automatic)
     node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;
   }
+  if (v->number > 1 || v->target_number > 0) {       // 큐브 번호 (2026-11-14): 같은 색 여러 개는 실물 경로(색 검출 번호)에만 있음
+    node_->log("WARN", "음성 「" + v->text + "」: 큐브 번호는 실물 모드(--mode real, 시뮬레이션 포함)에서만 지원");
+    node_->say("그 명령은 이 모드에서는 할 수 없어요.");
+    return;
+  }
   if (v->action == "gripper_open") {                 // 「아리스 그리퍼 열어」 (2026-11-14): 그리퍼 버튼과 같음
     const bool armed = chk_arm_->isChecked();
     if (armOk("그리퍼 열기")) {
@@ -753,7 +758,7 @@ void MainWindow::onVoiceRun(bool automatic)
     }
     return;
   }
-  if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect") {
+  if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect" || v->action == "find") {
     node_->log("WARN", "음성 「" + v->text + "」: 실물 모드(--mode real)에서만 지원 - 시뮬레이션 모드는 Connect 버튼을 쓰세요");
     node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;

@@ -108,6 +108,15 @@ def cart_vel(pct):
     return max(10.0, MAX_CART_VEL * float(pct) / 100.0)
 
 
+# 결과 문장에 넣는 표시: 화면(aris3_gui_cpp)이 이 말을 보고 「팔이 닿지 않아요」 라고 말한다 (2026-11-14)
+UNREACHABLE = '닿지 않는 위치'
+
+
+def controller_unreachable(lines):
+    """로봇 로그 줄들에 컨트롤러의 도달 불가 경고(「... is NOT REACHABLE」)가 있는가."""
+    return any('NOT REACHABLE' in ln for ln in lines)
+
+
 def hold_code(holding, cls=RealRobotState):
     """PickSequence.holding(True/False/None) -> 메시지의 HOLD_YES / HOLD_NO / HOLD_UNKNOWN 숫자."""
     return cls.HOLD_UNKNOWN if holding is None else (cls.HOLD_YES if holding else cls.HOLD_NO)
@@ -129,6 +138,9 @@ class RealBridge(Node):
         self.declare_parameter('center_grasp', True, ANY_TYPE)
         # 탁자 블록 마커 보정 (2026-11-14): 블록 윗면에 붙인 ArUco 4X4_50 마커 ID (보정 ① 이 마커 중심을 씀)
         self.declare_parameter('marker_id', 0, ANY_TYPE)
+        # 닿는 거리 (2026-11-14): 베이스에서 이보다 먼 큐브·놓을 자리는 출발 전에 거부한다. 그리퍼를 아래로 향한 채
+        # 접근 높이(집는 높이 + 100 mm)로 가야 하는데, 실물에서 686 mm 는 갔고 716 mm 는 컨트롤러가 NOT REACHABLE 로 거부했다
+        self.declare_parameter('reach_max_mm', 700.0, ANY_TYPE)
         self.link, self.mgr, self.conn = link, mgr, conn
         self.state_ko = state_ko or {}
         self.arm_timeout = float(self.get_parameter('arm_timeout_s').value)
@@ -695,7 +707,7 @@ class RealBridge(Node):
         if near is None:
             return '받침 큐브가 지금 카메라에 보이지 않음'
         bx, by = self.calib.to_robot(*grasp_px(near))         # 쌓인 받침은 원근 보정 픽셀
-        if math.hypot(bx - x, by - y) < STACK_MIN_SEP_MM:
+        if x is not None and math.hypot(bx - x, by - y) < STACK_MIN_SEP_MM:
             return '집을 큐브와 받침 큐브가 같은 자리'
         if int(near.level) >= MAX_LEVEL:            # 그 위에 하나 더 = MAX_LEVEL 넘음
             return f'받침이 이미 {near.level}층 (최대 {MAX_LEVEL}층까지만 쌓음)'
@@ -712,7 +724,7 @@ class RealBridge(Node):
         res = RealPickPlace.Result()
         names = {G.HOVER: '큐브 위로', G.PICK: '집기', G.PLACE_AT: '고른 자리에 놓기',
                  G.PICK_AND_PLACE: '집어서 옮기기', G.PLACE_HERE: '여기 내려놓기', G.RESUME: '이어서 하기',
-                 G.PICK_AND_STACK: '쌓기'}
+                 G.PICK_AND_STACK: '쌓기', G.PLACE_ON: '올려놓기'}
         what = names.get(g.kind)
         res.holding = hold_code(self.picker.holding, RealPickPlace.Result)
         if what is None:
@@ -739,16 +751,36 @@ class RealBridge(Node):
         if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE):
             px, py = self.calib.to_robot(g.place_u, g.place_v)
             place_yaw = self._place_yaw(px, py)
-        if g.kind == G.PICK_AND_STACK:
-            why = self._stack_base_xy(g, x, y)
+        if g.kind == G.PLACE_ON and P.holding is False:      # 올려놓기 (2026-11-14): 들고 있는 큐브가 있어야 한다
+            res.success, res.message = False, f'{what} 거부: 그리퍼가 비어 있음 (먼저 큐브를 집으세요)'
+            self.get_logger().warn(res.message)
+            return self._finish(goal_handle, res)
+        if g.kind in (G.PICK_AND_STACK, G.PLACE_ON):
+            # 올려놓기는 집을 큐브가 없으므로 「집을 큐브와 받침이 같은 자리」 검사를 하지 않는다 (None)
+            why = self._stack_base_xy(g, *((x, y) if g.kind == G.PICK_AND_STACK else (None, None)))
             if isinstance(why, str):
                 res.success, res.message = False, f'{what} 거부: {why}'
                 self.get_logger().warn(res.message)
                 return self._finish(goal_handle, res)
             px, py, base_level, place_yaw = why
+        # 닿지 않는 위치 (2026-11-14): 집을 큐브·놓을 자리가 너무 멀면 출발하지 않는다 (화면은 이 문장을 보고 말로 알린다)
+        reach = float(self.get_parameter('reach_max_mm').value)
+        far = []
+        if g.kind in (G.HOVER, G.PICK, G.PICK_AND_PLACE, G.PICK_AND_STACK):
+            far.append((g.target_name or '큐브', math.hypot(x, y)))
+        if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE, G.PICK_AND_STACK, G.PLACE_ON):
+            far.append(('놓을 자리', math.hypot(px, py)))
+        far = [(n, r) for n, r in far if r > reach]
+        if far:
+            res.success = False
+            res.message = (f'{what} 거부: {UNREACHABLE} - ' + ', '.join(f'{n} 까지 {r:.0f} mm' for n, r in far)
+                           + f' (최대 {reach:.0f} mm)')
+            self.get_logger().warn(res.message)
+            return self._finish(goal_handle, res)
         for n in notes:
             self.get_logger().warn(f'{what}: {n}')
         self._touch()
+        log_seq0 = getattr(self.link, 'log_seq', len(self.link.log_lines))    # 이 순서가 남기는 로봇 로그만 보려고
         if g.kind == G.RESUME:                # 정지로 끊긴 순서를 멈춘 단계부터 (좌표는 처음 계산한 그대로)
             started = P.resume()
         elif g.kind == G.HOVER:
@@ -763,6 +795,8 @@ class RealBridge(Node):
         elif g.kind == G.PICK_AND_STACK:
             started = P.pick_and_stack(x, y, z, px, py, base_level, pick_lift, yaw=yaw, base_yaw=place_yaw,
                                        locate=locate)
+        elif g.kind == G.PLACE_ON:
+            started = P.place_on(px, py, z, base_level, base_yaw=place_yaw)
         else:
             started = P.place_here(z)
         if not started:
@@ -781,6 +815,11 @@ class RealBridge(Node):
         res.holding = hold_code(P.holding, RealPickPlace.Result)
         res.success = bool(P.last_ok) and not goal_handle.is_cancel_requested
         res.message = f'{what}: ' + ('완료' if res.success else f'「{P.step}」 에서 멈춤 - {self._last_link_log("")}')
+        if not res.success:
+            # 컨트롤러가 「NOT REACHABLE」 로 거부했으면 (거리 검사를 지났어도 높이·자세 때문에) 결과에 표시
+            n_new = getattr(self.link, 'log_seq', len(self.link.log_lines)) - log_seq0
+            if controller_unreachable(self.link.log_lines[-n_new:] if n_new > 0 else []):
+                res.message += f' [{UNREACHABLE}]'
         return self._finish(goal_handle, res)
 
     # ================================================================== 주기: 잠금 시간, 상태 발행

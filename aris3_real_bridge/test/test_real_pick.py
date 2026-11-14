@@ -447,3 +447,18 @@ def test_update_hold_reads_last_gripper_reply():
     assert seq.update_hold() is None and '모름' in logs[-1]
     link.gripper = {'position': 519, 'torque': True}
     assert seq.update_hold() is True and seq.holding is True
+
+
+# ---------------------------------------------------------------- 올려놓기 (2026-11-14)
+def test_place_on_puts_held_cube_one_cube_higher():
+    """올려놓기: 집는 단계 없이, 들고 있는 큐브를 받침 위(쌓기와 같은 높이)에 놓고 빈손이 된다."""
+    link = FakeLink(grip_close_pos=500)
+    seq = PickSequence(link, lambda s: None)
+    seq.holding = True
+    run(seq, seq.place_on, 300.0, 300.0, 180.0, 1)
+    grips = [c for c in link.calls if c[0] == 'grip']
+    assert grips == [('grip', 0)]                                  # 열기만 (닫지 않는다)
+    low = min(c[3] for c in link.calls if c[0] == 'move' and (c[1], c[2]) == (300, 300))
+    assert low == 225                                              # 받침 1층 위: 180 + 큐브 한 개(40) + 여유 3 + 놓기 2 mm
+    assert seq.last_ok and seq.holding is False and seq.name == '올려놓기'
+

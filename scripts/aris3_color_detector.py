@@ -54,8 +54,11 @@ from aris3_interfaces.msg import DetectedObject, DetectedObjectArray
 COLOR_RANGES = {
     # 빨강·노랑 최소 채도(S)를 높게 둔 이유: 사람 피부가 H 3~20, S 100~130 이라 손이 들어오면 빨강으로
     # 잡혔다 (2026-11-09, 4 % 의 장). 큐브는 빨강 S 155 이상, 노랑 S 약 160.
-    'red': [((0, 145, 60), (6, 255, 255)), ((165, 145, 60), (180, 255, 255))],
-    'yellow': [((10, 140, 120), (35, 255, 255))],
+    # 2026-11-14: 작업대 가운데 조명이 강해 큐브 채도가 빨강 132 / 노랑 136 (중앙값) 으로 내려가 둘 다 안 잡혔다.
+    # 피부는 채도 대신 색상으로 뺀다 - 그날 잰 팔은 H 5~9, S 91~117, 큐브는 빨강 H 175 / 노랑 H 15~16.
+    # 그래서 피부와 색상이 겹치는 빨강 H 0~6 은 S 145 그대로, 피부에서 먼 H 165~180 과 노랑(H 하한 10 -> 12)만 S 95 로.
+    'red': [((0, 145, 60), (6, 255, 255)), ((165, 95, 60), (180, 255, 255))],
+    'yellow': [((12, 95, 120), (35, 255, 255))],
     'green': [((40, 80, 50), (85, 255, 255))],
     'blue': [((95, 100, 50), (130, 255, 255))],
 }
@@ -214,12 +217,19 @@ class CubeNumberer:
 
     앞 장의 같은 색 큐브 중 가까운(max_dist 픽셀 안) 것의 번호를 이어받는다. 손에 잠깐 가려도 hold_s 초 동안은
     번호를 기억해 두어, 다시 보이면 같은 번호가 된다. 새 큐브는 비어 있는 가장 작은 번호를 왼쪽(u 작은)부터 받는다.
+
+    빈 번호 메우기 (2026-11-14): 큐브를 손으로 옮기면 추적이 끊겨 새 번호가 붙고, 예전 번호는 비어 2개인데 1번·3번이
+    되곤 했다 (음성 「2번 파란 큐브」 가 없는 번호가 됨). 가려진 큐브가 없는데 번호에 빈칸이 compact_s 초 넘게 남아
+    있으면, 지금 번호 순서를 지키며 1, 2, ... 로 다시 매긴다. 바로 하지 않는 이유: 로봇 팔에 잠깐 가린 큐브가
+    다시 보일 때 번호가 서로 바뀌지 않게.
     """
 
-    def __init__(self, max_dist=40.0, hold_s=2.0):
+    def __init__(self, max_dist=40.0, hold_s=2.0, compact_s=4.0):
         self.max_dist = max_dist
         self.hold_s = hold_s
+        self.compact_s = compact_s
         self.tracks = {}            # 색 -> [{'n': 번호, 'u': 픽셀, 'v': 픽셀, 't': 마지막으로 본 시각}]
+        self.gap_since = {}         # 색 -> 번호에 빈칸이 생긴 것을 처음 본 시각 (없으면 키 없음)
 
     def assign(self, color, points, now):
         """이번 장의 그 색 큐브 픽셀 [(u, v)] -> 같은 순서의 번호 목록."""
@@ -244,9 +254,17 @@ class CubeNumberer:
                 n += 1
             nums[i] = n
             taken.add(n)
-        # 기억 갱신: 이번에 본 큐브 + 아직 기억 시간이 남은 안 보인 큐브
+        hidden = [t for j, t in enumerate(tracks) if j not in used_t]     # 아직 기억 시간이 남은 안 보인 큐브
+        # 빈 번호 메우기: 가려진 큐브가 없고 번호가 1..N 이 아닌 채 compact_s 초가 지나면 순서대로 다시 매긴다
+        if hidden or sorted(nums) == list(range(1, len(nums) + 1)):
+            self.gap_since.pop(color, None)
+        elif now - self.gap_since.setdefault(color, now) >= self.compact_s:
+            rank = {n: k for k, n in enumerate(sorted(nums), 1)}
+            nums = [rank[n] for n in nums]
+            self.gap_since.pop(color, None)
+        # 기억 갱신: 이번에 본 큐브 + 안 보인 큐브
         seen = [{'n': n, 'u': u, 'v': v, 't': now} for n, (u, v) in zip(nums, points)]
-        self.tracks[color] = seen + [t for j, t in enumerate(tracks) if j not in used_t]
+        self.tracks[color] = seen + hidden
         return nums
 
 

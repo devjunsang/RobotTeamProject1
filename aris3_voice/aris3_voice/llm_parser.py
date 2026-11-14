@@ -1,7 +1,8 @@
 """LLM(Claude Haiku 5.5) 음성 명령 해석기 (2026-11-11).
 
 Whisper 가 적은 문장 -> command_parser.parse_command 와 **같은 모양의 dict** (action, color, shape, ref_object,
-ref_place, ambiguous, original_text, normalized_text, target_color). 그래서 validate_command·VoiceCommand·GUI·브리지는 그대로다.
+ref_place, ambiguous, original_text, normalized_text, target_color, number, target_number). 그래서 validate_command·
+VoiceCommand·GUI·브리지는 그대로다. number·target_number (2026-11-14): 「1번 파란색 큐브」 의 큐브 번호, 0 = 말하지 않음.
 
   - 출력은 JSON 스키마로 강제한다 (output_config.format) - LLM 은 정해진 동작 목록 밖의 일을 시킬 수 없다.
     로봇을 실제로 움직이는 것은 여전히 GUI 와 브리지의 안전 검사를 거친다.
@@ -22,9 +23,10 @@ except ImportError:                     # pragma: no cover - 설치 환경에 �
     anthropic = None
 
 # 동작·색·도형: command_parser 와 같은 값만 (빈 문자열 = 없음/모름)
-ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', 'gripper_open', '']
+ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', 'gripper_open', 'find', '']
 COLORS = ['red', 'blue', 'green', 'yellow', '']
 SHAPES = ['cube', 'triangle', 'circle', '']
+NUMBERS = list(range(10))               # 큐브 번호 0(말하지 않음) ~ 9 (2026-11-14)
 
 # 응답 JSON 스키마 - 이 밖의 값은 나올 수 없다
 SCHEMA = {
@@ -34,11 +36,14 @@ SCHEMA = {
         'color': {'type': 'string', 'enum': COLORS},
         'shape': {'type': 'string', 'enum': SHAPES},
         'target_color': {'type': 'string', 'enum': COLORS},
+        'number': {'type': 'integer', 'enum': NUMBERS},
+        'target_number': {'type': 'integer', 'enum': NUMBERS},
         'ref_object': {'type': 'boolean'},
         'ref_place': {'type': 'boolean'},
         'ambiguous': {'type': 'boolean'},
     },
-    'required': ['action', 'color', 'shape', 'target_color', 'ref_object', 'ref_place', 'ambiguous'],
+    'required': ['action', 'color', 'shape', 'target_color', 'number', 'target_number', 'ref_object', 'ref_place',
+                 'ambiguous'],
     'additionalProperties': False,
 }
 
@@ -47,12 +52,15 @@ SYSTEM = """너는 로봇 팔 ARIS 의 한국어 음성 명령 해석기다. 사
 정해진 명령 하나로 바꾼다. 호출어 「아리스」 는 이미 떼어 냈다. 로봇을 직접 움직이지 않고, 해석 결과만 낸다.
 
 작업 공간에는 색이 다른 큐브가 있다 (빨강 red, 파랑 blue, 초록 green, 노랑 yellow).
+같은 색 큐브가 여럿이면 화면에 번호가 붙는다 (1번 파란색 큐브, 2번 파란색 큐브 ...). 사람은 그 번호로 큐브를 고를 수 있다.
 사람은 화면을 클릭하거나 손으로 가리켜 물체(「이거/그거/저거」)와 자리(「저기/여기/거기」)를 고를 수 있다.
 
 action:
 - pick: 물체를 집기/들기/옮기기. 「잡아」「집어」「들어」「가져와」「옮겨」.
   물체와 자리가 같이 나오면(「이거 저기로 옮겨」) pick + ref_place=true (집어서 그 자리에 놓기).
 - place: 들고 있는 것을 내려놓기. 「내려놔」「놔줘」「놓아」. 자리를 말하면 ref_place=true.
+  집을 물체를 말하지 않고 받침 큐브만 말하면(「빨간 큐브 위로 올려놔」「2번 파란 큐브 위에 놓아」) 지금 들고 있는 것을
+  그 큐브 위에 올려놓기다 -> place, color="", target_color=받침 색 (번호를 말했으면 target_number), ref_object=false.
 - home: 홈(기본) 자세로. 「홈」「원위치」「제자리로」「처음 자세」「집으로 돌아가」(집 = 홈, 집기 아님).
 - stop: 멈추기. 「멈춰」「정지」「그만」「스톱」「잠깐」.
 - resume: 멈춘 작업을 이어서. 「계속해」「이어서 해」「다시 진행」.
@@ -60,6 +68,8 @@ action:
 - power_on: 로봇 가동(접속 후 팔을 펴기). 「가동」「깨어나」「일어나」「작동 시작」.
 - gripper_open: 그리퍼(손·집게)만 열기, 팔은 움직이지 않음. 「그리퍼 열어」「손 펴」「집게 벌려」.
   그리퍼·손·집게를 말하지 않은 「열어」 만은 gripper_open 이 아니다 ("" 로).
+- find: 그 색 큐브를 찾기만 하기 (집지 않음). 「파란색 큐브 찾아」「빨간 큐브 어디 있어」. color 에 찾을 색 (번호를 말했으면 number).
+  집으라는 말이 함께 있으면(「파란 큐브 찾아서 집어줘」) find 가 아니라 pick 이다.
 - "" : 위 어느 것도 아니거나 로봇 명령이 아닌 말 (잡담, 질문 등).
 
 color: 집을 물체의 색. 부정(「빨간 거 말고 파란 거」)이면 실제로 집을 색(blue). 말하지 않았으면 "".
@@ -69,6 +79,10 @@ target_color: 쌓기. 집은 큐브를 다른 큐브 「위에/위로」 놓으�
   「파란 거 위에 빨간 거 올려」 -> pick, color=red, target_color=blue (위에 놓이는 쪽이 color).
   「이거 초록 큐브 위에 쌓아」 -> pick, color="", ref_object=true, target_color=green.
   쌓기일 때 ref_place 는 false (놓을 자리는 받침 큐브).
+number: 집을 큐브의 번호. 「1번 파란색 큐브 집어줘」「파란 큐브 2번 잡아」「두 번째 빨간 큐브」 -> 1, 2, 2. 번호를 말하지 않았으면 0.
+  「일번」 = 1, 「이번 큐브」「파란 큐브 이번」 = 2 (단, 「이번에는 파란 큐브」 의 「이번에는」 은 번호가 아니다 -> 0), 「삼번」 = 3.
+target_number: 쌓기 받침 큐브의 번호. 「1번 파란 큐브를 2번 파란 큐브 위로」 -> color=blue, number=1, target_color=blue,
+  target_number=2 (같은 색끼리도 번호가 다르면 쌓기다). 받침 번호를 말하지 않았으면 0.
 ref_object: 「이거/그거/저거/이것」 처럼 화면에서 고른 물체를 가리키면 true. 색을 말했으면 false.
 ref_place: 「저기/여기/거기/그 자리/고른 자리」 처럼 화면에서 고른 자리를 가리키면 true.
 ambiguous: 집으라는 건지 다른 뜻인지 정말 판단할 수 없을 때만 true (예: 「빨간 거 지워줘」 - 「집어줘」 오인식일 수도).
@@ -168,11 +182,18 @@ def to_command(data, text):
         """allowed 안의 값만, 아니면 빈 문자열."""
         v = data.get(key, '')
         return v if v in allowed else ''
+
+    def num(key):
+        """0 ~ 9 의 정수만, 아니면 0 (bool·문자열·범위 밖은 번호 없음으로)."""
+        v = data.get(key, 0)
+        return v if isinstance(v, int) and not isinstance(v, bool) and v in NUMBERS else 0
     return {
         'action': pick('action', ACTIONS),
         'color': pick('color', COLORS),
         'shape': pick('shape', SHAPES),
         'target_color': pick('target_color', COLORS),
+        'number': num('number'),
+        'target_number': num('target_number'),
         'ref_object': bool(data.get('ref_object', False)),
         'ref_place': bool(data.get('ref_place', False)),
         'ambiguous': bool(data.get('ambiguous', False)),

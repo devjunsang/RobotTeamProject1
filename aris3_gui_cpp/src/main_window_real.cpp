@@ -408,6 +408,24 @@ void MainWindow::stackRun(const QString & heard, const std::array<double, 2> & b
   }
 }
 
+// 올려놓기 (2026-11-14): 집지 않고, 지금 그리퍼가 들고 있는 큐브를 받침 큐브 위에 놓는다 (브리지 PLACE_ON).
+void MainWindow::placeOnRun(const QString & heard, const std::array<double, 2> & base_px, const std::string & base_name)
+{
+  if (!armOk("올려놓기")) {return;}
+  if (!real_->calibReady()) {
+    node_->log("WARN", "올려놓기: 카메라 보정이 없음");
+    return;
+  }
+  const auto xy = real_->toRobot(base_px[0], base_px[1]);
+  if (!xy) {return;}
+  if (ask(QStringLiteral("올려놓기"), heard + QStringLiteral("\n\n지금 들고 있는 큐브를 %1 (X %2, Y %3 mm) 위에 올려놓습니다.\n"
+      "놓는 높이는 큐브 한 개만큼 높습니다.\n\n로봇 주변(손 포함)이 비었습니까?")
+      .arg(QString::fromStdString(base_name)).arg((*xy)[0], 0, 'f', 0).arg((*xy)[1], 0, 'f', 0)))
+  {
+    real_->pickPlace(PP::PLACE_ON, "올려놓기", "", std::nullopt, base_px);
+  }
+}
+
 // ======================================================================== 실물 음성 (매번 확인창)
 void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool allow_search)
 {
@@ -431,7 +449,8 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
       return std::string();
     };
   const auto answer = [&](const std::string & why_not) {
-      node_->say(why_not.empty() ? voiceReply(v.action, v.color, v.shape, v.refers_selected_place) : why_not);
+      node_->say(why_not.empty() ? voiceReply(v.action, v.color, v.shape, v.refers_selected_place, "", v.number) :
+        why_not);
     };
   // 음성으로 시작한 동작은 확인창 없이 바로 실행한다 (사용자 결정 2026-11-11).
   // 조작 허용 확인(armOk)과 정지는 그대로 동작한다. 이 함수를 벗어나면 다시 묻는다 (손짓·버튼은 계속 확인창).
@@ -476,6 +495,63 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
     homeVoice(heard);
     return;
   }
+  // 찾기 (2026-11-14): 「아리스 파란색 큐브 찾아」 - 보이면 그 큐브를 고르고, 안 보이면 팔(J1)을 좌우로 돌리며 찾는다.
+  // 집지는 않는다. 찾은 뒤에는 「아리스 이거 집어줘」 로 이어갈 수 있다 (화면에서 고른 것과 같음)
+  if (v.action == "find") {
+    if (v.color.empty()) {
+      node_->say("어떤 색 큐브를 찾을지 말씀해 주세요.");
+      return;
+    }
+    std::vector<aris3_interfaces::msg::DetectedObject> same;
+    std::vector<std::string> ids;
+    for (const auto & o : node_->snapshot().px_objects) {
+      if (o.color == v.color) {
+        same.push_back(o);
+        ids.push_back(o.id);
+      }
+    }
+    const auto name = objectKo(v.color, v.shape, v.number);
+    const int idx = pickCubeIndex(ids, v.number);
+    if (idx >= 0) {                                  // 보임 (하나뿐이거나 말한 번호): 그 큐브를 고른다
+      const auto & o = same[static_cast<std::size_t>(idx)];
+      pick_px_ = std::array<double, 2>{o.pose.pose.position.x, o.pose.pose.position.y};
+      pick_name_ = o.id.empty() ? o.color : o.id;
+      updatePickLabel();
+      const auto xy = real_->toRobot((*pick_px_)[0], (*pick_px_)[1]);
+      node_->log("INFO", "찾기: " + pick_name_ + " 보임" + (xy ? " (로봇 X " + std::to_string(static_cast<int>((*xy)[0])) +
+        ", Y " + std::to_string(static_cast<int>((*xy)[1])) + " mm)" : std::string()) + " - 고른 큐브로 표시");
+      if (allow_search) {node_->say(name + josa(name, "은", "는") + " 화면에 보여요.");}   // 탐색으로 찾았으면 이미 「찾았어요」
+      return;
+    }
+    if (!same.empty()) {                             // 그 색은 보이는데 여럿이거나(번호 없음) 말한 번호가 없음
+      node_->log("INFO", "찾기: " + v.color + " 큐브 " + std::to_string(same.size()) + "개 보임");
+      if (allow_search || v.number > 0) {
+        node_->say(v.number > 0 ? "카메라에 " + name + josa(name, "이", "가") + " 보이지 않아요." :
+          name + josa(name, "이", "가") + " " + std::to_string(same.size()) + "개 보여요.");
+      }
+      return;
+    }
+    if (!allow_search) {return;}                     // 탐색이 끝났는데도 없음 (탐색 쪽에서 이미 말함)
+    if (!node_->statusFlags().px_detections) {
+      node_->log("WARN", "찾기: 색 검출이 오지 않음 (scripts/aris3_color_detector.py 확인)");
+      node_->say("카메라 색 검출이 꺼져 있어요.");
+      return;
+    }
+    const auto why = refuse(false, false);           // 팔을 돌리므로 조작 허용·준비 확인 (보정은 필요 없음)
+    if (!why.empty()) {
+      node_->say(why);
+      return;
+    }
+    node_->say(voiceReply("find", v.color, v.shape, false, "", v.number));
+    node_->log("INFO", "찾기 시작: " + name + " 이(가) 안 보임 - J1 을 좌우로 천천히 돌리며 찾습니다 (정지하면 그만)");
+    ColorSearch S;
+    S.v = v;
+    S.colors = {v.color};
+    S.settle = std::chrono::steady_clock::now();
+    S.deadline = S.settle + std::chrono::seconds(90);
+    search_ = S;
+    return;
+  }
   // 말한 색(집을 큐브·받침 큐브)이 카메라에 하나도 없으면: 로봇 팔에 가렸을 수 있으니 팔을 좌우로 돌려 찾는다.
   if (v.action == "pick" && allow_search) {
     std::vector<std::string> seen;
@@ -503,14 +579,39 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
       return;
     }
   }
-  // 그 색 큐브가 카메라에 꼭 하나 보이면 그 검출. 없거나 여럿이면 이유를 말하고 nullopt (쌓기·색 집기 공용)
-  const auto onlyOne = [&](const std::string & color, bool is_base)
+  // 닿지 않는 위치 (2026-11-14): 픽셀 px 의 로봇 좌표가 너무 멀면 「… 너무 멀어서 팔이 닿지 않아요」 라고 말하고 true.
+  // 「네, …를 잡습니다」 라고 대답한 뒤 조용히 실패하지 않게, 보내기 전에 본다 (보정이 없으면 판단하지 않음)
+  const auto unreachable = [&](const std::array<double, 2> & px, const std::string & what) {
+      const auto xy = real_->toRobot(px[0], px[1]);
+      if (!xy || !tooFar((*xy)[0], (*xy)[1])) {return false;}
+      node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 닿지 않는 위치 (베이스에서 " +
+        std::to_string(static_cast<int>(std::hypot((*xy)[0], (*xy)[1]))) + " mm, 최대 " +
+        std::to_string(static_cast<int>(kReachMaxMm)) + " mm) - 로봇 쪽으로 당겨 놓으세요");
+      node_->say(tooFarReply(what));
+      return true;
+    };
+  // 그 색 큐브가 카메라에 꼭 하나 보이면 그 검출. 없거나 여럿이면 이유를 말하고 nullopt (쌓기·색 집기 공용).
+  // number > 0 (2026-11-14, 「1번 파란색 큐브」): 같은 색이 여럿이어도 그 번호의 큐브(색 검출 이름 blue_cube_1)를 고른다
+  const auto onlyOne = [&](const std::string & color, bool is_base, int number)
     -> std::optional<aris3_interfaces::msg::DetectedObject> {
       std::vector<aris3_interfaces::msg::DetectedObject> same;
+      std::vector<std::string> ids;
       for (const auto & o : node_->snapshot().px_objects) {
-        if (o.color == color) {same.push_back(o);}
+        if (o.color == color) {
+          same.push_back(o);
+          ids.push_back(o.id);
+        }
       }
       const auto name = objectKo(color, is_base ? "cube" : v.shape);
+      const int idx = pickCubeIndex(ids, number);
+      if (idx >= 0) {return same[static_cast<std::size_t>(idx)];}
+      if (!same.empty() && number > 0) {              // 그 색은 보이지만 말한 번호가 없음
+        const auto numbered = objectKo(color, is_base ? "cube" : v.shape, number);
+        node_->log("WARN", "음성: " + std::to_string(number) + "번 " + color + " 큐브가 보이지 않음 (그 색 " +
+          std::to_string(same.size()) + "개 - 화면의 번호를 확인하세요)");
+        node_->say("카메라에 " + numbered + josa(numbered, "이", "가") + " 보이지 않아요.");
+        return std::nullopt;
+      }
       if (same.empty()) {
         node_->log("WARN", "음성: 카메라에 " + color + " 큐브가 보이지 않음");
         node_->say("카메라에 " + name + josa(name, "이", "가") + " 보이지 않아요.");
@@ -518,16 +619,32 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
       }
       if (same.size() > 1) {
         node_->log("WARN", "음성: " + color + " 큐브가 " + std::to_string(same.size()) + "개" +
-          (is_base ? std::string(" - 어느 큐브 위에 올릴지 모름") : std::string(" - 화면에서 클릭한 뒤 「아리스 이거 …」")));
-        node_->say(is_base ? name + josa(name, "이", "가") + " 여러 개라 어느 위에 올릴지 모르겠어요." :
-          name + josa(name, "이", "가") + " 여러 개 있어요. 화면에서 하나를 골라 주세요.");
+          (is_base ? std::string(" - 어느 큐브 위에 올릴지 모름 (「2번 파란 큐브 위로」 처럼 번호로)") :
+          std::string(" - 「1번 파란색 큐브」 처럼 번호로 말하거나, 화면에서 클릭한 뒤 「아리스 이거 …」")));
+        node_->say(is_base ? name + josa(name, "이", "가") + " 여러 개예요. 몇 번 위에 올릴지 말씀해 주세요." :
+          name + josa(name, "이", "가") + " 여러 개 있어요. 몇 번인지 말씀해 주세요.");
         return std::nullopt;
       }
       return same[0];
     };
+  if (v.action == "place" && !v.target_color.empty()) {   // 올려놓기 (2026-11-14): 「빨간 큐브 위로 올려놔」
+    if (!real_->holding().value_or(false)) {         // 들고 있는 큐브가 있을 때만 (빈손·모름이면 하지 않는다)
+      node_->log("WARN", "음성 「" + v.text + "」: 그리퍼가 큐브를 들고 있지 않음 (GRIPPER 패널의 「잡은 상태」 확인)");
+      node_->say("지금 들고 있는 큐브가 없어요.");
+      return;
+    }
+    const auto base = onlyOne(v.target_color, true, v.target_number);
+    if (!base) {return;}
+    if (unreachable({base->pose.pose.position.x, base->pose.pose.position.y},
+        objectKo(v.target_color, "cube", v.target_number))) {return;}
+    const auto why = refuse(true, false);
+    node_->say(why.empty() ? voiceReply("place", "", "", false, v.target_color, 0, v.target_number) : why);
+    placeOnRun(heard, {base->pose.pose.position.x, base->pose.pose.position.y}, base->id.empty() ? base->color : base->id);
+    return;
+  }
   if (!v.target_color.empty()) {                     // 쌓기 (2026-11-13): 「노란 큐브를 파란 큐브 위로 옮겨줘」
     if (!v.color.empty()) {                          // 집을 큐브: 말한 색, 아니면 화면에서 고른 큐브(「이거」)
-      const auto o = onlyOne(v.color, false);
+      const auto o = onlyOne(v.color, false, v.number);
       if (!o) {return;}
       pick_px_ = std::array<double, 2>{o->pose.pose.position.x, o->pose.pose.position.y};
       pick_name_ = o->id.empty() ? o->color : o->id;
@@ -536,7 +653,7 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
       node_->say("어떤 물체인지 화면에서 먼저 골라 주세요.");
       return;
     }
-    const auto base = onlyOne(v.target_color, true);
+    const auto base = onlyOne(v.target_color, true, v.target_number);
     if (!base) {return;}
     const std::array<double, 2> base_px{base->pose.pose.position.x, base->pose.pose.position.y};
     if (std::hypot((*pick_px_)[0] - base_px[0], (*pick_px_)[1] - base_px[1]) < 20.0) {
@@ -544,8 +661,11 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
       node_->say("올릴 물체와 받침 큐브가 같아요.");
       return;
     }
+    if (unreachable(*pick_px_, objectKo(v.color, v.shape, v.number)) ||
+      unreachable(base_px, objectKo(v.target_color, "cube", v.target_number))) {return;}
     const auto why = refuse(true, false);
-    node_->say(why.empty() ? voiceReply("pick", v.color, v.shape, false, v.target_color) : why);
+    node_->say(why.empty() ? voiceReply("pick", v.color, v.shape, false, v.target_color, v.number, v.target_number) :
+      why);
     stackRun(heard, base_px, base->id.empty() ? base->color : base->id);
     return;
   }
@@ -561,8 +681,8 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
     placeHere(heard);
     return;
   }
-  if (!v.color.empty()) {                            // 「빨간 큐브 집어줘」: 그 색 검출이 하나일 때만
-    const auto o = onlyOne(v.color, false);
+  if (!v.color.empty()) {                            // 「빨간 큐브 집어줘」: 그 색 검출이 하나일 때, 여럿이면 번호로 (「1번 …」)
+    const auto o = onlyOne(v.color, false, v.number);
     if (!o) {return;}
     pick_px_ = std::array<double, 2>{o->pose.pose.position.x, o->pose.pose.position.y};
     pick_name_ = o->id.empty() ? o->color : o->id;
@@ -572,6 +692,8 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
     node_->say("어떤 물체인지 화면에서 먼저 골라 주세요.");
     return;
   }
+  if (unreachable(*pick_px_, objectKo(v.color, v.shape, v.number)) ||
+    (v.refers_selected_place && place_px_ && unreachable(*place_px_, "고르신 자리"))) {return;}
   answer(refuse(true, v.refers_selected_place));
   if (v.refers_selected_place) {                     // 「이거 저기로 옮겨줘」: 집어서 고른 자리에 놓기
     pickAndPlace(heard);

@@ -166,3 +166,68 @@ TEST(VoiceReply, NeverContainsWakeWord)
     }
   }
 }
+
+// 큐브 번호 (2026-11-14): 「1번 파란색 큐브」 - 이름의 번호 읽기, 말한 번호로 큐브 고르기, 대답 문장.
+TEST(CubeNumber, IdNumberPickAndReply)
+{
+  EXPECT_EQ(aris::cubeNumberFromId("blue_cube_2"), 2);
+  EXPECT_EQ(aris::cubeNumberFromId("blue_cube"), 0);        // 그 색이 하나뿐이면 번호 없음
+  EXPECT_EQ(aris::cubeNumberFromId("blue"), 0);
+  EXPECT_EQ(aris::cubeNumberFromId(""), 0);
+  EXPECT_EQ(aris::cubeNumberFromId("cube_"), 0);
+
+  const std::vector<std::string> two{"blue_cube_1", "blue_cube_2"};
+  EXPECT_EQ(aris::pickCubeIndex(two, 2), 1);                // 말한 번호의 큐브
+  EXPECT_EQ(aris::pickCubeIndex(two, 1), 0);
+  EXPECT_EQ(aris::pickCubeIndex(two, 3), -1);               // 없는 번호
+  EXPECT_EQ(aris::pickCubeIndex(two, 0), -2);               // 번호를 말하지 않았는데 여럿
+  EXPECT_EQ(aris::pickCubeIndex({"blue_cube"}, 0), 0);      // 하나뿐이면 번호 없이도
+  EXPECT_EQ(aris::pickCubeIndex({"blue_cube"}, 1), 0);      // 하나뿐인 큐브 = 1번
+  EXPECT_EQ(aris::pickCubeIndex({"blue_cube"}, 2), -1);
+  EXPECT_EQ(aris::pickCubeIndex({}, 1), -1);
+
+  EXPECT_EQ(aris::objectKo("blue", "cube", 1), "1번 파란색 큐브");
+  EXPECT_EQ(aris::objectKo("", "", 1), "고르신 물체");      // 색이 없으면 번호를 붙이지 않는다
+  EXPECT_EQ(aris::voiceReply("pick", "blue", "cube", false, "", 1), "네, 1번 파란색 큐브를 잡습니다.");
+  EXPECT_EQ(aris::voiceReply("pick", "blue", "cube", false, "blue", 1, 2),
+    "네, 1번 파란색 큐브를 2번 파란색 큐브 위에 올립니다.");
+}
+
+// 올려놓기 (2026-11-14): 「빨간 큐브 위로 올려놔」 - 들고 있는 큐브를 받침 위에. 받침 번호도 말한다.
+TEST(VoiceReply, PlaceOnBaseCube)
+{
+  EXPECT_EQ(aris::voiceReply("place", "", "", false, "red"), "네, 들고 있는 큐브를 빨간색 큐브 위에 올려놓겠습니다.");
+  EXPECT_EQ(aris::voiceReply("place", "", "", false, "blue", 0, 2),
+    "네, 들고 있는 큐브를 2번 파란색 큐브 위에 올려놓겠습니다.");
+  EXPECT_EQ(aris::voiceReply("place", "", "", false), "네, 여기에 내려놓겠습니다.");   // 받침이 없으면 예전 그대로
+}
+
+// 찾기 (2026-11-14): 「파란색 큐브 찾아」 의 대답. 번호를 말했으면 번호도.
+TEST(VoiceReply, FindSentence)
+{
+  EXPECT_EQ(aris::voiceReply("find", "blue", "cube", false), "네, 파란색 큐브를 찾아볼게요.");
+  EXPECT_EQ(aris::voiceReply("find", "red", "", false, "", 2), "네, 2번 빨간색 큐브를 찾아볼게요.");
+}
+
+// 닿지 않는 위치 (2026-11-14): 베이스에서 700 mm 넘으면 멀다고 보고, 그 이유를 말한다.
+TEST(Reach, TooFarAndReply)
+{
+  EXPECT_FALSE(aris::tooFar(685.0, 29.0));                  // 실물에서 간 곳
+  EXPECT_TRUE(aris::tooFar(714.0, 53.0));                   // 컨트롤러가 NOT REACHABLE 로 거부한 곳
+  EXPECT_FALSE(aris::tooFar(0.0, -700.0));
+  EXPECT_TRUE(aris::tooFar(500.0, 500.0));
+  EXPECT_EQ(aris::tooFarReply("노란색 큐브"), "노란색 큐브는 너무 멀어서 팔이 닿지 않아요.");
+  EXPECT_EQ(aris::tooFarReply("고르신 자리"), "고르신 자리는 너무 멀어서 팔이 닿지 않아요.");
+}
+
+// 로그 창 (2026-11-14): 「아리스」 없이 들린 말(무시한 말)은 넣지 않고, 「아리스」 로 부른 명령·ARIS 의 대답은 넣는다.
+TEST(LogFilter, HidesSpeechWithoutWakeWord)
+{
+  EXPECT_TRUE(aris::isIgnoredSpeechLog("aris3_voice", "「오늘 점심 뭐 먹지」 - 호출어(아리스) 없음, 무시 (0.22s)"));
+  EXPECT_TRUE(aris::isIgnoredSpeechLog("aris3_voice", "「네, 말씀하세요.」 - ARIS 가 말하는 중에 들린 말이라 무시, 명령을 계속 기다림"));
+  EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_voice", "「아리스, 노란색 큐브 잡아.」 -> action=pick color=yellow valid=True"));
+  EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_voice", "「아리스」 - 호출어만 들림: 8 초 안의 다음 말을 명령으로 받음"));
+  EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_voice", "말함: 「네, 노란색 큐브를 잡습니다.」 (합성 0.0s)"));
+  EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_real_bridge", "호출어(아리스) 없음, 무시"));   // 다른 노드의 글은 그대로
+}
+

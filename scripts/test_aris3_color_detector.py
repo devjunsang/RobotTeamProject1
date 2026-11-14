@@ -142,3 +142,36 @@ def test_detect_reports_cube_angle(ang):
     assert len(found) == 1
     got = found[0][7]
     assert abs((got - ang + 45.0) % 90.0 - 45.0) < 3.0
+
+
+# ---------------------------------------------------------------- 같은 색 큐브 번호 (2026-11-14)
+def frames(nb, color, points, t0, t1, dt=0.1):
+    """t0 ~ t1 동안 dt 마다 같은 검출을 넣고 (실제 15 Hz 처럼 끊기지 않게) 마지막 번호 목록을 돌려준다."""
+    nums, t = None, t0
+    while t <= t1 + 1e-9:
+        nums = nb.assign(color, points, t)
+        t += dt
+    return nums
+
+
+def test_numberer_keeps_numbers_and_fills_gap_after_delay():
+    """같은 큐브는 같은 번호. 가운데 번호가 비면(2개인데 1번·3번) compact_s 초 뒤 1번·2번으로 다시 매긴다."""
+    from aris3_color_detector import CubeNumberer
+    nb = CubeNumberer(max_dist=40.0, hold_s=2.0, compact_s=4.0)
+    a, b, c = (100.0, 100.0), (300.0, 100.0), (500.0, 100.0)
+    assert nb.assign('blue', [a, b, c], 0.0) == [1, 2, 3]            # 새 큐브는 왼쪽부터
+    assert nb.assign('blue', [c, a, b], 0.1) == [3, 1, 2]            # 순서가 바뀌어도 같은 큐브는 같은 번호
+    assert frames(nb, 'blue', [a, c], 0.2, 2.0) == [1, 3]            # 2번을 치움: 기억 시간(2 s) 동안은 그대로
+    assert frames(nb, 'blue', [a, c], 2.1, 5.5) == [1, 3]            # 빈칸이 생긴 지 4 초가 안 됨
+    assert frames(nb, 'blue', [a, c], 5.6, 7.0) == [1, 2]            # 4 초 넘게 비어 있으면 메운다
+    assert frames(nb, 'blue', [a, c], 7.1, 9.0) == [1, 2]            # 그 뒤로 유지
+
+
+def test_numberer_briefly_hidden_cube_gets_its_number_back():
+    """로봇 팔에 잠깐 가린 큐브가 다시 보이면 (빈칸을 메우기 전이면) 원래 번호를 받는다 - 번호가 서로 바뀌지 않는다."""
+    from aris3_color_detector import CubeNumberer
+    nb = CubeNumberer(max_dist=40.0, hold_s=2.0, compact_s=4.0)
+    a, b = (100.0, 100.0), (300.0, 100.0)
+    assert nb.assign('red', [a, b], 0.0) == [1, 2]
+    assert frames(nb, 'red', [b], 0.1, 5.0) == [2]                   # 1번이 가려짐: 기억은 지났지만 아직 메우지 않음
+    assert frames(nb, 'red', [a, b], 5.1, 5.5) == [1, 2]             # 다시 보이면 비어 있던 1번
