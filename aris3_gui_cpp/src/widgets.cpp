@@ -121,6 +121,10 @@ void CameraView::setPixelMarks(const std::optional<std::array<double, 2>> & plac
   calib_px_ = calib_px;
 }
 
+// 닿는 범위 경계선의 진하기 (1 = 불투명): 선은 아주 흐리게, 글자는 조금 더 보이게
+constexpr double kReachLineOpacity = 0.10;
+constexpr double kReachLabelOpacity = 0.45;
+
 void CameraView::setReachBoundary(const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label)
 {
   reach_lines_ = lines;
@@ -217,11 +221,12 @@ void CameraView::paintEvent(QPaintEvent *)
           poly << pt;
           if (r.contains(pt) && (!top || pt.y() < top->y())) {top = pt;}
         }
-        p.setPen(QPen(QColor(0, 0, 0, 140), 4));     // 밝은 판 위에서도 보이게 어두운 밑선
-        p.drawPolyline(poly);
+        // 아주 흐리게 (사용자 결정 2026-11-14: 선이 10 % 만 보이게 - 영상을 가리지 않도록). 어두운 밑선은 그리지 않는다
+        p.setOpacity(kReachLineOpacity);
         p.setPen(QPen(theme::kGold, 2, Qt::DashLine));
         p.drawPolyline(poly);
       }
+      p.setOpacity(kReachLabelOpacity);              // 글자는 읽을 수 있을 만큼만
       if (top && !reach_label_.isEmpty()) {
         const QRectF box = QFontMetricsF(p.font()).boundingRect(reach_label_).adjusted(-4, -2, 4, 2);
         const QPointF at(std::clamp(top->x() - box.width() / 2, r.left() + 4, r.right() - box.width() - 4),
