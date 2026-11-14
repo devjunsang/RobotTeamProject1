@@ -4,6 +4,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QMouseEvent>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QPixmap>
 
@@ -120,6 +121,12 @@ void CameraView::setPixelMarks(const std::optional<std::array<double, 2>> & plac
   calib_px_ = calib_px;
 }
 
+void CameraView::setReachBoundary(const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label)
+{
+  reach_lines_ = lines;
+  reach_label_ = label;
+}
+
 void CameraView::setPointer(const std::optional<std::array<double, 2>> & tip, double progress, const QString & text)
 {
   pointer_ = tip;
@@ -196,6 +203,34 @@ void CameraView::paintEvent(QPaintEvent *)
         drawBox(p, QPointF(r.x() + o.pose.pose.position.x * k, r.y() + o.pose.pose.position.y * k), half, label,
           theme::kCyan, false, !o.id.empty() && o.id == selected_id_);
       }
+    }
+    // 닿는 범위 경계선 (2026-11-14): 이 선 바깥의 큐브는 팔이 닿지 않는다 (금색 점선, 영상 안쪽만 그린다)
+    if (!reach_lines_.empty()) {
+      p.save();
+      p.setClipRect(r);
+      p.setBrush(Qt::NoBrush);
+      std::optional<QPointF> top;                    // 글자를 붙일 자리: 영상 안에서 가장 위쪽 점
+      for (const auto & line : reach_lines_) {
+        QPolygonF poly;
+        for (const auto & q : line) {
+          const QPointF pt(r.x() + q[0] * k, r.y() + q[1] * k);
+          poly << pt;
+          if (r.contains(pt) && (!top || pt.y() < top->y())) {top = pt;}
+        }
+        p.setPen(QPen(QColor(0, 0, 0, 140), 4));     // 밝은 판 위에서도 보이게 어두운 밑선
+        p.drawPolyline(poly);
+        p.setPen(QPen(theme::kGold, 2, Qt::DashLine));
+        p.drawPolyline(poly);
+      }
+      if (top && !reach_label_.isEmpty()) {
+        const QRectF box = QFontMetricsF(p.font()).boundingRect(reach_label_).adjusted(-4, -2, 4, 2);
+        const QPointF at(std::clamp(top->x() - box.width() / 2, r.left() + 4, r.right() - box.width() - 4),
+          std::min(top->y() + 6, r.bottom() - box.height() - 4));
+        p.fillRect(QRectF(at, box.size()), QColor(0, 0, 0, 170));
+        p.setPen(theme::kGold);
+        p.drawText(QRectF(at, box.size()), Qt::AlignCenter, reach_label_);
+      }
+      p.restore();
     }
     // 실물: 놓을 자리 픽셀(시안), 보정 ① 기억 픽셀(노랑)
     if (place_px_) {drawPlaceMarker(p, QPointF(r.x() + (*place_px_)[0] * k, r.y() + (*place_px_)[1] * k), 12, theme::kCyan);}

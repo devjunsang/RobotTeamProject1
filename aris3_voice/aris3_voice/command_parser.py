@@ -26,6 +26,9 @@ ARIS3 변경 (2026-11-08, 11-09):
   - 찾기 (2026-11-14): 「파란색 큐브 찾아」 -> find, color=blue (번호도 됨). 집기·놓기 말이 함께 있으면 그쪽이 먼저다
     (「파란 큐브 찾아서 집어줘」 = pick - 집기는 안 보이면 스스로 찾는다). 팔을 돌려 찾는 것은 ARIS 화면이 한다.
 
+  - 탐색 (2026-11-14): 색을 말하지 않은 「탐색」「탐색해」「둘러봐」 -> scan (화면에 세 가지 색이 보일 때까지 팔을 돌려
+    찾는다 - 팔에 가린 큐브 찾기). 색을 함께 말하면(「파란 큐브 탐색해」) 그 색 찾기(find) 다.
+
 ROS 에 의존하지 않는 순수 함수라서 단위 시험(test/test_command_parser.py)에서 바로 쓴다.
 """
 import re
@@ -87,6 +90,8 @@ GRIPPER_NOUNS = ["그리퍼", "그립퍼", "그리파", "손", "집게"]
 OPEN_VERBS = ["열어", "열기", "열어줘", "열자", "펴", "펼쳐", "벌려"]
 # 찾기 (2026-11-14): 「파란색 큐브 찾아」 - 그 색 큐브가 카메라에 안 보이면 팔을 좌우로 돌리며 찾는다
 FIND_WORDS = ["찾아", "찾기", "찾으", "어디있", "어딨", "어디에있"]
+# 탐색 (2026-11-14): 색 없이 「탐색」 - 세 가지 색 큐브가 모두 보일 때까지 팔을 좌우로 돌린다 (색을 말하면 find)
+SCAN_WORDS = ["탐색", "둘러봐", "둘러보", "살펴봐", "살펴보", "스캔"]
 # 쌓기 (2026-11-13): 「~ 위에/위로」 또는 「올려/쌓아」 가 있고 색이 둘이면 한 큐브를 다른 큐브 위에 놓는다
 STACK_WORDS = ["위에", "위로", "위쪽", "올려", "올리", "쌓아", "쌓기", "쌓으"]
 
@@ -304,6 +309,8 @@ def _parse(text):
         action = "pick"
     elif any(w in norm for w in FIND_WORDS):       # 집기·놓기 말이 없을 때만 (「찾아서 집어줘」 는 pick)
         action = "find"
+    elif any(w in norm for w in SCAN_WORDS):       # 「탐색」: 색을 말했으면 그 색 찾기, 아니면 전체 탐색
+        action = "find" if color else "scan"
     elif "지워줘" in norm and (color or shape or ref_object):
         # '집어줘' 의 오인식일 수도, 진짜 '지워줘' 일 수도 있다 -> 자동으로 정하지 않는다
         ambiguous = True
@@ -352,6 +359,8 @@ def validate_command(cmd, known_colors=None):
         if known_colors is not None and cmd["color"] not in known_colors:
             return False, f"작업 공간에 없는 색입니다: {cmd['color']}"
         return True, f"FIND 명령 생성 ({named(cmd['color'], num)} 찾기)"
+    if cmd["action"] == "scan":
+        return True, "SCAN 명령 생성 (세 가지 색이 보일 때까지 탐색)"
     if cmd["action"] == "home":
         return True, "HOME 명령 생성 (홈 자세로 돌아가기)"
     if cmd["action"] == "stop":

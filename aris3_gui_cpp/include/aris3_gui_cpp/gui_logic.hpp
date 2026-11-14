@@ -119,6 +119,12 @@ std::vector<std::string> missingColors(const std::vector<std::string> & want, co
 // 브리지 파라미터 reach_max_mm 와 같은 값 (실물에서 686 mm 는 갔고 716 mm 는 컨트롤러가 거부)
 constexpr double kReachMaxMm = 700.0;
 bool tooFar(double x_mm, double y_mm, double max_mm = kReachMaxMm);
+// 닿는 범위 경계선 (2026-11-14): 로봇 베이스에서 radius_mm 인 원을 카메라 영상 픽셀로 옮긴 선들.
+//   H: 카메라 보정 3x3 (픽셀 -> 로봇 mm, 행 우선 9개 - RealRobotState.calib_homography). 그 역으로 원 위 n 점을 옮긴다.
+//   원이 영상 평면 뒤로 넘어가거나(원근) max_px 보다 멀리 떨어지는 점에서는 선을 끊는다 -> 이어진 조각들의 목록.
+//   원 전체가 보이면 조각 하나이고 첫 점으로 닫혀 있다. 보정이 뒤집힐 수 없는 행렬이면 빈 목록.
+std::vector<std::vector<std::array<double, 2>>> reachBoundaryPx(const std::array<double, 9> & H, double radius_mm,
+  int n = 120, double max_px = 4000.0);
 // 「노란색 큐브는 너무 멀어서 팔이 닿지 않아요.」 (what: 「노란색 큐브」 「놓을 자리」 ...)
 std::string tooFarReply(const std::string & what);
 

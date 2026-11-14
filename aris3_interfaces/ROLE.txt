@@ -26,6 +26,7 @@ ROS 2 msg / srv / action
 추가 (2026-11-13): VoiceCommand 에 target_color (쌓기 받침 색), RealPickPlace 에 PICK_AND_STACK=6
 추가 (2026-11-14): VoiceCommand 에 number·target_number (큐브 번호 - 「1번 파란색 큐브」, 0 = 말하지 않음). 낸 곳 aris3_voice, 받는 곳 aris3_gui_cpp
 추가 (2026-11-14): RealPickPlace 에 PLACE_ON=7 (들고 있는 큐브를 받침 큐브 위에 놓기), VoiceCommand action 에 "find" (색 큐브 찾기),
+추가 (2026-11-14): VoiceCommand action 에 "scan" (탐색 - 세 가지 색이 보일 때까지 팔을 돌려 찾기)
   action "place" + target_color = 올려놓기 (받침 색)
 추가 (2026-11-09): msg HandGesture (/aris3/gesture), ExecuteTask 에 target_id·place_position, VoiceCommand 에 home·지시어
 추가 (2026-11-10, 실물 로직을 aris3_real_bridge 노드로 옮기기 위한 계약 - 두 GUI(PyQt, ARIS C++)가 같이 씀):

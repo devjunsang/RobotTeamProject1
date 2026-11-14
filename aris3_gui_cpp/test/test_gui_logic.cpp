@@ -207,6 +207,7 @@ TEST(VoiceReply, FindSentence)
 {
   EXPECT_EQ(aris::voiceReply("find", "blue", "cube", false), "네, 파란색 큐브를 찾아볼게요.");
   EXPECT_EQ(aris::voiceReply("find", "red", "", false, "", 2), "네, 2번 빨간색 큐브를 찾아볼게요.");
+  EXPECT_EQ(aris::voiceReply("scan", "", "", false), "네, 큐브를 찾아볼게요.");   // 탐색 (2026-11-14): 색을 말하지 않음
 }
 
 // 닿지 않는 위치 (2026-11-14): 베이스에서 700 mm 넘으면 멀다고 보고, 그 이유를 말한다.
@@ -229,5 +230,22 @@ TEST(LogFilter, HidesSpeechWithoutWakeWord)
   EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_voice", "「아리스」 - 호출어만 들림: 8 초 안의 다음 말을 명령으로 받음"));
   EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_voice", "말함: 「네, 노란색 큐브를 잡습니다.」 (합성 0.0s)"));
   EXPECT_FALSE(aris::isIgnoredSpeechLog("aris3_real_bridge", "호출어(아리스) 없음, 무시"));   // 다른 노드의 글은 그대로
+}
+
+// 닿는 범위 경계선 (2026-11-14): 보정 행렬의 역으로 옮긴 점들을 다시 로봇 좌표로 바꾸면 모두 반지름 위에 있다.
+TEST(Reach, BoundaryPixelsLieOnCircle)
+{
+  // 픽셀 -> 로봇: x = 900 - 1.2 v, y = 780 - 1.2 u (위쪽 카메라처럼 축이 바뀌고 뒤집힌 닮음 변환)
+  const std::array<double, 9> H{0.0, -1.2, 900.0, -1.2, 0.0, 780.0, 0.0, 0.0, 1.0};
+  const auto lines = aris::reachBoundaryPx(H, 700.0, 72);
+  ASSERT_EQ(lines.size(), 1u);                              // 원근이 없으면 원 전체가 한 조각
+  ASSERT_EQ(lines[0].size(), 73u);                          // 72 점 + 닫는 점
+  EXPECT_DOUBLE_EQ(lines[0].front()[0], lines[0].back()[0]);
+  for (const auto & q : lines[0]) {
+    const double x = 900.0 - 1.2 * q[1], y = 780.0 - 1.2 * q[0];
+    EXPECT_NEAR(std::hypot(x, y), 700.0, 1e-6);
+  }
+  EXPECT_TRUE(aris::reachBoundaryPx({0, 0, 0, 0, 0, 0, 0, 0, 0}, 700.0).empty());   // 뒤집을 수 없는 행렬
+  EXPECT_TRUE(aris::reachBoundaryPx(H, 0.0).empty());
 }
 

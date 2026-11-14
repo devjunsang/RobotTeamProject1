@@ -193,6 +193,8 @@ private:
   struct ColorSearch {
     aris3_interfaces::msg::VoiceCommand v;              // 찾은 뒤 실행할 원래 명령
     std::vector<std::string> colors;                    // 찾는 색
+    // 탐색 (2026-11-14, 「아리스 탐색」): 0 이 아니면 colors 대신 서로 다른 색이 이만큼 보일 때까지 찾는다
+    std::size_t want_distinct = 0;
     std::size_t step = 0;                               // 다음 searchSweepDeg() 목표 번호
     std::optional<double> start_j1;
     std::optional<double> sent_from;                    // 마지막 조그를 보낼 때의 J1 (시작 기준) - 안 움직였으면 그만                     // 탐색 시작 때 J1 [deg] (첫 주기에 상태에서 읽음)

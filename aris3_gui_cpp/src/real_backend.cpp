@@ -402,6 +402,15 @@ std::optional<RealBackend::Px> RealBackend::toRobot(double u, double v)
   return Px{x / w, y / w};
 }
 
+std::optional<std::array<double, 9>> RealBackend::calibMatrix()
+{
+  const auto s = state();
+  if (!s || !s->calib_ready) {return std::nullopt;}
+  std::array<double, 9> h{};
+  for (std::size_t k = 0; k < 9; ++k) {h[k] = s->calib_homography[k];}
+  return h;
+}
+
 std::optional<double> RealBackend::graspZ()
 {
   const auto s = state();

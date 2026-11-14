@@ -23,7 +23,7 @@ except ImportError:                     # pragma: no cover - 설치 환경에 �
     anthropic = None
 
 # 동작·색·도형: command_parser 와 같은 값만 (빈 문자열 = 없음/모름)
-ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', 'gripper_open', 'find', '']
+ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', 'gripper_open', 'find', 'scan', '']
 COLORS = ['red', 'blue', 'green', 'yellow', '']
 SHAPES = ['cube', 'triangle', 'circle', '']
 NUMBERS = list(range(10))               # 큐브 번호 0(말하지 않음) ~ 9 (2026-11-14)
@@ -70,6 +70,8 @@ action:
   그리퍼·손·집게를 말하지 않은 「열어」 만은 gripper_open 이 아니다 ("" 로).
 - find: 그 색 큐브를 찾기만 하기 (집지 않음). 「파란색 큐브 찾아」「빨간 큐브 어디 있어」. color 에 찾을 색 (번호를 말했으면 number).
   집으라는 말이 함께 있으면(「파란 큐브 찾아서 집어줘」) find 가 아니라 pick 이다.
+- scan: 색을 말하지 않고 주변을 찾아보라는 말. 「탐색」「탐색해」「둘러봐」「큐브 찾아봐」(색 없음). color 는 "".
+  색을 말했으면 scan 이 아니라 find 다 (「파란 큐브 탐색해」 -> find, color=blue).
 - "" : 위 어느 것도 아니거나 로봇 명령이 아닌 말 (잡담, 질문 등).
 
 color: 집을 물체의 색. 부정(「빨간 거 말고 파란 거」)이면 실제로 집을 색(blue). 말하지 않았으면 "".

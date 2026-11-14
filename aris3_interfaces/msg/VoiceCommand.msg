@@ -4,7 +4,7 @@
 builtin_interfaces/Time stamp
 string text                       # Whisper 가 인식한 문장 그대로
 string normalized_text            # 오인식 보정·공백 제거 후
-string action                     # "pick" | "place" | "home" (홈 자세로, 2026-11-09) | "find" (그 색 큐브 찾기, 2026-11-14) | "" (모름)
+string action                     # "pick" | "place" | "home" (홈 자세로, 2026-11-09) | "find" (그 색 큐브 찾기, 2026-11-14) | "scan" (탐색: 세 가지 색이 보일 때까지 팔을 돌려 찾기, 2026-11-14) | "" (모름)
 string color                      # "red" | "blue" | "yellow" | "green" | ""
 string shape                      # "cube" | ... | "" (말하지 않음 - 모양이 모두 같으면 생략 가능)
 bool refers_selected_object       # 「이거/그거/저거」: 화면(클릭·손짓)에서 고른 물체를 가리킴 (2026-11-09)
