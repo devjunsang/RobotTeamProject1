@@ -249,3 +249,12 @@ TEST(Reach, BoundaryPixelsLieOnCircle)
   EXPECT_TRUE(aris::reachBoundaryPx(H, 0.0).empty());
 }
 
+// 가까운 쪽 한계 (2026-11-14): 베이스에서 300 mm 안쪽은 너무 가깝다고 보고, 그 이유를 말한다.
+TEST(Reach, TooCloseAndReply)
+{
+  EXPECT_TRUE(aris::tooClose(211.0, -6.0));                 // 실물에서 하강 중 3번 관절 한계로 멈춘 곳
+  EXPECT_FALSE(aris::tooClose(402.0, 148.0));               // 실물에서 집은 곳
+  EXPECT_FALSE(aris::tooClose(300.0, 0.0));
+  EXPECT_EQ(aris::tooCloseReply("파란색 큐브"), "파란색 큐브는 로봇에 너무 가까워서 팔이 닿지 않아요.");
+}
+

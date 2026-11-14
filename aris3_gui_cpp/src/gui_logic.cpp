@@ -278,6 +278,16 @@ std::vector<std::vector<std::array<double, 2>>> reachBoundaryPx(const std::array
   return out;
 }
 
+bool tooClose(double x_mm, double y_mm, double min_mm)
+{
+  return std::hypot(x_mm, y_mm) < min_mm;
+}
+
+std::string tooCloseReply(const std::string & what)
+{
+  return what + josa(what, "은", "는") + " 로봇에 너무 가까워서 팔이 닿지 않아요.";
+}
+
 std::string tooFarReply(const std::string & what)
 {
   return what + josa(what, "은", "는") + " 너무 멀어서 팔이 닿지 않아요.";

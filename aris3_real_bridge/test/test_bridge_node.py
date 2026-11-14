@@ -817,3 +817,20 @@ def test_controller_unreachable_is_detected_in_log_lines():
     assert not controller_unreachable(['12:06:06 큐브 위 접근 높이로 (80 mm/s, 181 mm): 시작', ''])
     assert not controller_unreachable([])
 
+
+def test_pick_refused_when_cube_too_close(env):
+    """베이스에서 reach_min_mm 보다 가까운 큐브는 출발 전에 거부한다 (내려가다 관절 한계에 걸리는 자리)."""
+    from aris3_real_bridge.bridge_node import TOO_CLOSE, controller_unreachable
+    link, bridge, client = env
+    calibrate(bridge)
+    arm(client)
+    x, y = bridge.calib.to_robot(100.0, 50.0)
+    bridge.set_parameters([rclpy.parameter.Parameter('reach_min_mm', value=float(math.hypot(x, y) + 10.0))])
+    g = RealPickPlace.Goal(kind=RealPickPlace.Goal.PICK, target_name='blue', target_u=100.0, target_v=50.0)
+    r = send(client, RealPickPlace, '/aris3/real/pick_place', g)
+    assert not r.result.success and TOO_CLOSE in r.result.message and '최소' in r.result.message
+    assert not any(c.startswith('move') for c in link.calls)
+    # 컨트롤러의 관절 한계 경고도 닿지 않는 위치로 본다 (2026-11-14 실물 로그 그대로)
+    assert controller_unreachable(['12:29:32 로봇 경고: [2/2/9008] Joint Axis 3 angle beyond max limit, '
+                                   'ZoneName[global-normal] current pos=137.503[deg], max range=135.000[deg]'])
+

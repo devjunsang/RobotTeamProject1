@@ -59,7 +59,9 @@ public:
     const std::optional<std::array<double, 2>> & calib_px);
   void setPointer(const std::optional<std::array<double, 2>> & tip, double progress, const QString & text);
   // 닿는 범위 경계선 (2026-11-14): 영상 픽셀로 옮긴 선 조각들과 붙일 글자 (「닿는 범위 700 mm」). 빈 목록이면 안 그림
-  void setReachBoundary(const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label);
+  // min_lines, min_label: 가까운 쪽 한계 (빨강) - 이 선 안쪽은 로봇에 너무 가까워 관절 한계에 걸린다
+  void setReachBoundary(const std::vector<std::vector<std::array<double, 2>>> & lines, const QString & label,
+    const std::vector<std::vector<std::array<double, 2>>> & min_lines = {}, const QString & min_label = QString());
 
   std::function<void(double, double)> onWorldClick;   // 탁자 위 world (x, y) [m] - 카메라 TF 있을 때
   std::function<void(double, double)> onPixelClick;   // 영상 픽셀 (u, v) - 카메라 TF 없을 때 (실물)
@@ -81,6 +83,8 @@ private:
   std::optional<std::array<double, 2>> place_px_, calib_px_, pointer_;
   std::vector<std::vector<std::array<double, 2>>> reach_lines_;   // 닿는 범위 경계선 (영상 픽셀)
   QString reach_label_;
+  std::vector<std::vector<std::array<double, 2>>> reach_min_lines_;   // 가까운 쪽 한계선 (영상 픽셀)
+  QString reach_min_label_;
   double pointer_progress_{0.0};
   QString pointer_text_;
   bool show_det_{true};

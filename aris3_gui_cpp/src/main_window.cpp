@@ -821,7 +821,8 @@ void MainWindow::refreshCamera()
     // 닿는 범위 경계선 (2026-11-14): 카메라 보정이 있으면 베이스에서 kReachMaxMm 인 원을 영상에 그린다
     if (const auto H = real_->calibMatrix()) {
       camera_->setReachBoundary(reachBoundaryPx(*H, kReachMaxMm),
-        QStringLiteral("닿는 범위 %1 mm").arg(kReachMaxMm, 0, 'f', 0));
+        QStringLiteral("닿는 범위 %1 mm").arg(kReachMaxMm, 0, 'f', 0),
+        reachBoundaryPx(*H, kReachMinMm), QStringLiteral("최소 %1 mm").arg(kReachMinMm, 0, 'f', 0));
     } else {
       camera_->setReachBoundary({}, QString());
     }

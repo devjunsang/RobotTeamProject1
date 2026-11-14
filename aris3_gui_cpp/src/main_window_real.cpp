@@ -626,10 +626,17 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
   // 「네, …를 잡습니다」 라고 대답한 뒤 조용히 실패하지 않게, 보내기 전에 본다 (보정이 없으면 판단하지 않음)
   const auto unreachable = [&](const std::array<double, 2> & px, const std::string & what) {
       const auto xy = real_->toRobot(px[0], px[1]);
-      if (!xy || !tooFar((*xy)[0], (*xy)[1])) {return false;}
-      node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 닿지 않는 위치 (베이스에서 " +
-        std::to_string(static_cast<int>(std::hypot((*xy)[0], (*xy)[1]))) + " mm, 최대 " +
-        std::to_string(static_cast<int>(kReachMaxMm)) + " mm) - 로봇 쪽으로 당겨 놓으세요");
+      if (!xy) {return false;}
+      const int dist = static_cast<int>(std::hypot((*xy)[0], (*xy)[1]));
+      if (tooClose((*xy)[0], (*xy)[1])) {             // 너무 가까움 (2026-11-14): 내려가다 관절 한계에 걸리는 자리
+        node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 너무 가까운 위치 (베이스에서 " + std::to_string(dist) +
+          " mm, 최소 " + std::to_string(static_cast<int>(kReachMinMm)) + " mm) - 로봇에서 멀리 놓으세요");
+        node_->say(tooCloseReply(what));
+        return true;
+      }
+      if (!tooFar((*xy)[0], (*xy)[1])) {return false;}
+      node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 닿지 않는 위치 (베이스에서 " + std::to_string(dist) +
+        " mm, 최대 " + std::to_string(static_cast<int>(kReachMaxMm)) + " mm) - 로봇 쪽으로 당겨 놓으세요");
       node_->say(tooFarReply(what));
       return true;
     };
