@@ -126,6 +126,21 @@ def test_disconnect_and_power_on():
         assert validate_command(cmd)[0]
 
 
+def test_gripper_open():
+    """그리퍼 열기 (2026-11-14): 그리퍼·손·집게 + 열/펴/벌. 「멈춰」 가 섞이면 정지가 먼저."""
+    for s in ['그리퍼 열어', '그리퍼 열어줘', '그리퍼를 열어', '손 펴', '손을 펴줘', '집게 벌려', '그립퍼 열기']:
+        cmd = parse_command(s)
+        assert cmd['action'] == 'gripper_open', s
+        assert validate_command(cmd) == (True, 'GRIPPER_OPEN 명령 생성 (그리퍼 열기)')
+    assert parse_command('그리퍼 열지 말고 멈춰')['action'] == 'stop'
+
+
+def test_open_alone_is_not_gripper_open():
+    """「열어」 만(그리퍼·손·집게 없이)은 그리퍼 열기가 아니다 - 잡담으로 큐브를 떨어뜨리지 않게."""
+    for s in ['문 열어', '창문 열어줘', '열어']:
+        assert parse_command(s)['action'] != 'gripper_open', s
+
+
 def test_stop_beats_everything():
     """「멈춰」 는 다른 명령 낱말과 함께여도 정지."""
     assert parse_command('가동 멈춰')['action'] == 'stop'

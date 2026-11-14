@@ -22,7 +22,7 @@ except ImportError:                     # pragma: no cover - 설치 환경에 �
     anthropic = None
 
 # 동작·색·도형: command_parser 와 같은 값만 (빈 문자열 = 없음/모름)
-ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', '']
+ACTIONS = ['pick', 'place', 'home', 'stop', 'resume', 'disconnect', 'power_on', 'gripper_open', '']
 COLORS = ['red', 'blue', 'green', 'yellow', '']
 SHAPES = ['cube', 'triangle', 'circle', '']
 
@@ -58,6 +58,8 @@ action:
 - resume: 멈춘 작업을 이어서. 「계속해」「이어서 해」「다시 진행」.
 - disconnect: 로봇 연결 끊기. 「연결 해제」「연결 끊어」「접속 끊어」.
 - power_on: 로봇 가동(접속 후 팔을 펴기). 「가동」「깨어나」「일어나」「작동 시작」.
+- gripper_open: 그리퍼(손·집게)만 열기, 팔은 움직이지 않음. 「그리퍼 열어」「손 펴」「집게 벌려」.
+  그리퍼·손·집게를 말하지 않은 「열어」 만은 gripper_open 이 아니다 ("" 로).
 - "" : 위 어느 것도 아니거나 로봇 명령이 아닌 말 (잡담, 질문 등).
 
 color: 집을 물체의 색. 부정(「빨간 거 말고 파란 거」)이면 실제로 집을 색(blue). 말하지 않았으면 "".

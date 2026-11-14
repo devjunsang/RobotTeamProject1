@@ -68,6 +68,10 @@ RESUME_WORDS = ["계속해", "계속하", "계속진행", "이어서", "이어�
 # 접속 (2026-11-11): 「연결해제」 가 「연결해」 를 품고 있으므로 끊기를 먼저 본다
 DISCONNECT_WORDS = ["연결해제", "연결끊", "연결을끊", "접속해제", "접속끊", "접속을끊", "전원꺼", "꺼져"]
 POWER_ON_WORDS = ["가동", "기동", "작동시작", "깨어나", "일어나"]
+# 그리퍼 열기 (2026-11-14): 「그리퍼 열어」「손 펴」「집게 벌려」. 「열어」 만으로는 받지 않는다 (잡담에 흔한 말 -
+# 들고 있는 큐브를 떨어뜨릴 수 있으니 그리퍼·손·집게 + 열/펴/벌 이 함께 있을 때만)
+GRIPPER_NOUNS = ["그리퍼", "그립퍼", "그리파", "손", "집게"]
+OPEN_VERBS = ["열어", "열기", "열어줘", "열자", "펴", "펼쳐", "벌려"]
 # 쌓기 (2026-11-13): 「~ 위에/위로」 또는 「올려/쌓아」 가 있고 색이 둘이면 한 큐브를 다른 큐브 위에 놓는다
 STACK_WORDS = ["위에", "위로", "위쪽", "올려", "올리", "쌓아", "쌓기", "쌓으"]
 
@@ -157,6 +161,8 @@ def _parse(text):
         return dict(simple, action="disconnect")
     if any(w in norm for w in POWER_ON_WORDS):
         return dict(simple, action="power_on")
+    if any(n in norm for n in GRIPPER_NOUNS) and any(v in norm for v in OPEN_VERBS):
+        return dict(simple, action="gripper_open")
     if any(w in norm for w in RESUME_WORDS):
         return {"action": "resume", "color": "", "shape": "", "ambiguous": False,
                 "ref_object": False, "ref_place": False, "original_text": text, "normalized_text": norm}
@@ -212,4 +218,6 @@ def validate_command(cmd, known_colors=None):
         return True, "POWER_ON 명령 생성 (접속 -> 팔을 일자로 펴기)"
     if cmd["action"] == "resume":
         return True, "RESUME 명령 생성 (멈춘 단계부터 이어서)"
+    if cmd["action"] == "gripper_open":
+        return True, "GRIPPER_OPEN 명령 생성 (그리퍼 열기)"
     return False, "지원하지 않는 명령입니다."

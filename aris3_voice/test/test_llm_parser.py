@@ -105,6 +105,8 @@ LIVE = (llm_parser.anthropic is not None) and bool(os.environ.get('ANTHROPIC_API
     ('계속해', 'resume', ''),
     ('연결 해제', 'disconnect', ''),
     ('가동', 'power_on', ''),
+    ('그리퍼 열어', 'gripper_open', ''),
+    ('손 좀 펴 줄래', 'gripper_open', ''),
     ('빨간 거 말고 파란 거 들어줘', 'pick', 'blue'),       # 낱말 표는 빨강으로 읽음
     ('노란색 큐구 자바', 'pick', 'yellow'),                # 음성 인식 오타
     ('처음 자세로 돌아가 줄래', 'home', ''),
