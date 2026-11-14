@@ -196,6 +196,7 @@ std::string voiceReply(const std::string & action, const std::string & color, co
   if (action == "resume") {return "네, 이어서 하겠습니다.";}
   if (action == "power_on") {return "네, 가동합니다.";}
   if (action == "disconnect") {return "네, 연결을 해제합니다.";}
+  if (action == "gripper_open") {return "네, 그리퍼를 엽니다.";}
   return "잘 못 알아들었어요. 다시 말씀해 주세요.";
 }
 

@@ -128,6 +128,7 @@ TEST(VoiceReply, SentencesForEachAction)
   EXPECT_EQ(aris::voiceReply("pick", "red", "", true), "네, 빨간색 큐브를 집어서 고르신 자리로 옮깁니다.");
   EXPECT_EQ(aris::voiceReply("home", "", "", false), "네, 홈 자세로 돌아갑니다.");
   EXPECT_EQ(aris::voiceReply("stop", "", "", false), "네, 멈춥니다.");
+  EXPECT_EQ(aris::voiceReply("gripper_open", "", "", false), "네, 그리퍼를 엽니다.");
   EXPECT_EQ(aris::voiceReply("", "", "", false), "잘 못 알아들었어요. 다시 말씀해 주세요.");
 }
 

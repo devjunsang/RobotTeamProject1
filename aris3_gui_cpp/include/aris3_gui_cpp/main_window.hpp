@@ -160,6 +160,7 @@ private:
   QLabel * lbl_voice_state_{nullptr}, * lbl_heard_{nullptr}, * lbl_parsed_{nullptr};
   QPushButton * btn_talk_{nullptr}, * btn_voice_run_{nullptr};
   QLineEdit * txt_cmd_{nullptr};
+  QLineEdit * txt_hold_{nullptr};                     // 그리퍼 패널: 큐브를 잡고 있는지 표시 (읽기 전용, 2026-11-14)
   QTimer timer_, cam_timer_;
 
   // ---- M2: 수동 조작·화면 선택·작업 공간

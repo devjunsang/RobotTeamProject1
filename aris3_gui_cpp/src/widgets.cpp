@@ -185,7 +185,13 @@ void CameraView::paintEvent(QPaintEvent *)
       // 픽셀 검출 (색 검출 스크립트): 중심과 넓이로 정사각 상자
       for (const auto & o : px_) {
         const double half = std::sqrt(std::max(1.0, static_cast<double>(o.size_px))) * k / 2 + 4;
+        // 이름 + 층 (깊이로 계산, 0 = 모름이면 생략) + 큐브 각도 + 신뢰도. 예: 「red_cube_1 · 2층 · 42° 0.93」
+        // 각도 (2026-11-13): 영상에서 큐브 면 방향 [0, 90)° - 브리지가 이 각도로 그리퍼(J6)를 맞춰 집는다
+        const auto & q = o.pose.pose.orientation;
+        const double ang = std::atan2(q.z, q.w) * 2.0 * 180.0 / M_PI;
         const QString label = QString::fromStdString(o.id.empty() ? o.color : o.id) +
+          (o.level > 0 ? QStringLiteral(" · %1층").arg(o.level) : QString()) +
+          QStringLiteral(" · %1°").arg(ang, 0, 'f', 0) +
           QString(" %1").arg(o.confidence, 0, 'f', 2);
         drawBox(p, QPointF(r.x() + o.pose.pose.position.x * k, r.y() + o.pose.pose.position.y * k), half, label,
           theme::kCyan, false, !o.id.empty() && o.id == selected_id_);

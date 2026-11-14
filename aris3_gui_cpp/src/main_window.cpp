@@ -222,6 +222,17 @@ QWidget * MainWindow::buildLeftColumn()
   bar_grip_->setFormat(QStringLiteral("닫힘 %p%"));
   grip->body()->addWidget(lbl_grip_);
   grip->body()->addWidget(bar_grip_);
+  // 잡은 상태 표시 (2026-11-14): 큐브를 잡고 있는지 한눈에 - 읽기 전용 칸 (실물은 브리지 판단, 시뮬레이션은 닫힌 정도)
+  auto * hr = new QHBoxLayout;
+  hr->addWidget(new QLabel(QStringLiteral("잡은 상태")));
+  txt_hold_ = new QLineEdit(QStringLiteral("모름"));
+  txt_hold_->setReadOnly(true);
+  txt_hold_->setFocusPolicy(Qt::NoFocus);            // Space(정지)·명령 입력 초점을 가져가지 않게
+  txt_hold_->setAlignment(Qt::AlignCenter);
+  txt_hold_->setToolTip(QStringLiteral("큐브 잡음: 닫다가 물체에 막혀 멈춤 · 빈손: 열려 있거나 끝까지 닫힘 · "
+    "모름: 아직 그리퍼를 움직이지 않음"));
+  hr->addWidget(txt_hold_, 1);
+  grip->body()->addLayout(hr);
   auto * gr = new QHBoxLayout;
   btn_gopen_ = nofocus(new QPushButton(QStringLiteral("열기")));
   btn_gclose_ = nofocus(new QPushButton(QStringLiteral("닫기 (잡기)")));
@@ -732,6 +743,16 @@ void MainWindow::onVoiceRun(bool automatic)
     node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;
   }
+  if (v->action == "gripper_open") {                 // 「아리스 그리퍼 열어」 (2026-11-14): 그리퍼 버튼과 같음
+    const bool armed = chk_arm_->isChecked();
+    if (armOk("그리퍼 열기")) {
+      node_->say(voiceReply("gripper_open", "", "", false));
+      backend_->gripper(false);
+    } else {
+      node_->say(armed ? "아직 움직일 준비가 되지 않았어요." : "조작 허용을 먼저 켜 주세요.");
+    }
+    return;
+  }
   if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect") {
     node_->log("WARN", "음성 「" + v->text + "」: 실물 모드(--mode real)에서만 지원 - 시뮬레이션 모드는 Connect 버튼을 쓰세요");
     node_->say("그 명령은 이 모드에서는 할 수 없어요.");
@@ -882,6 +903,19 @@ void MainWindow::refresh()
     lbl_grip_->setText((*gp < 0.05 ? QStringLiteral("열림") : *gp > 0.9 ? QStringLiteral("닫힘 (빈손)") :
       QStringLiteral("닫힘 (물체를 잡고 있음)")) +
       (s.gripper_msg.empty() ? QString() : "  ·  " + QString::fromStdString(s.gripper_msg)));
+  }
+  // ---- 잡은 상태: 실물은 브리지가 그리퍼 위치·토크로 판단한 값, 시뮬레이션은 닫힌 정도 (열림·다 닫힘 = 빈손)
+  std::optional<bool> held;
+  if (real_) {
+    held = real_->holding();
+  } else if (const auto gp = backend_->gripperPosition()) {
+    held = *gp >= 0.05 && *gp <= 0.9;
+  }
+  const QString hold_text = !held ? QStringLiteral("모름") : *held ? QStringLiteral("큐브 잡음") : QStringLiteral("빈손");
+  if (txt_hold_->text() != hold_text) {               // 바뀔 때만 (매 주기 스타일을 다시 매기지 않게)
+    txt_hold_->setText(hold_text);
+    txt_hold_->setStyleSheet(held && *held ? QStringLiteral("color:#ffd166; font-weight:bold") :
+      !held ? QStringLiteral("color:#9aa7b4") : QString());
   }
 
   // ---- 카메라 정보

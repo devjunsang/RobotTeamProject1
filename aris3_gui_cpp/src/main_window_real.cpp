@@ -69,26 +69,43 @@ QWidget * MainWindow::buildRealPickPanel()
   p->body()->addWidget(lbl_pick_);
 
   auto * g = new QGridLayout;
-  auto * b1 = nf(new QPushButton(QStringLiteral("① 큐브 픽셀 기억")));
-  b1->setToolTip(QStringLiteral("큐브가 카메라에 가려지지 않았을 때 누르세요 (고른 큐브의 지금 위치를 기억)"));
+  auto * b1 = nf(new QPushButton(QStringLiteral("① 마커·큐브 픽셀 기억")));
+  b1->setToolTip(QStringLiteral("마커(ArUco 4X4_50) 붙인 블록이 카메라에 가려지지 않았을 때 누르세요 (마커 중심을 기억).\n"
+    "마커가 없으면 카메라 화면에서 고른 큐브의 위치를 기억합니다"));
   connect(b1, &QPushButton::clicked, this, [this]() {
-      if (!pick_px_) {
-        node_->log("WARN", "보정 ①: 먼저 카메라 화면에서 큐브를 클릭하세요");
-        return;
-      }
-      real_->calibration(CAL::REMEMBER, (*pick_px_)[0], (*pick_px_)[1]);
+      // 탁자 블록 마커 (2026-11-14): 마커는 브리지가 영상에서 직접 찾는다 (여럿이면 마지막으로 클릭한 자리에 가까운 것).
+      // 마커가 없을 때만 고른 큐브 픽셀을 쓴다
+      const auto px = pick_px_ ? pick_px_ : place_px_;
+      real_->calibration(CAL::REMEMBER, px ? (*px)[0] : 0.0, px ? (*px)[1] : 0.0);
     });
   auto * b2 = nf(new QPushButton(QStringLiteral("② 로봇 위치 기록")));
-  b2->setToolTip(QStringLiteral("조그로 그리퍼를 그 큐브를 집는 자세(손가락 사이에 큐브)까지 내린 뒤 누르세요"));
+  b2->setToolTip(QStringLiteral("조그·손으로 움직이기로 그리퍼를 그 블록(큐브)을 집는 자세(손가락 사이)까지 내린 뒤 누르세요"));
   connect(b2, &QPushButton::clicked, this, [this]() {real_->calibration(CAL::RECORD, 0, 0, pick_name_);});
   auto * b3 = nf(new QPushButton(QStringLiteral("마지막 점 삭제")));
   connect(b3, &QPushButton::clicked, this, [this]() {real_->calibration(CAL::REMOVE_LAST);});
   auto * b4 = nf(new QPushButton(QStringLiteral("보정 저장")));
+  b4->setToolTip(QStringLiteral("블록 자동 보정점이 4개 이상이면 그것으로 새 보정을 만듭니다 (예전 파일은 .bak 으로 백업)"));
+  // 블록 자동 기록 (2026-11-14): 마커 블록을 로봇이 직접 잡아 가운데로 맞춘 뒤 기록 - 사람은 블록 자리만 옮김
+  auto * b5 = nf(new QPushButton(QStringLiteral("블록 자동 기록 (로봇이 잡아서)")));
+  b5->setToolTip(QStringLiteral("마커 붙인 블록을 탁자에 두고 누르세요. 로봇이 블록을 찾아가 잡고, 손목을 90° 돌려 한 번 더 잡아\n"
+    "가운데로 맞춘 위치를 기록한 뒤 홈으로 비켜 마커를 다시 잽니다. 블록 자리를 바꿔 6~8번 후 「보정 저장」"));
+  connect(b5, &QPushButton::clicked, this, [this]() {
+      if (!armOk("블록 자동 기록")) {return;}
+      if (ask(QStringLiteral("블록 자동 기록"),
+          QStringLiteral("마커 붙인 블록을 탁자 위에 두었습니까?\n\n"
+            "로봇이 지금 보정으로 블록을 찾아가 그리퍼를 열고 내려가 잡았다 놓고, 손목을 90° 돌려 다시 잡아\n"
+            "블록을 가운데로 맞춘 위치를 기록합니다. 그다음 홈 자세로 비켜 마커를 다시 잽니다 (블록은 그 자리에 둠).\n\n"
+            "그리퍼가 비었고 로봇·블록 주변(손 포함)이 비었습니까?")))
+      {
+        real_->calibration(CAL::AUTO_RECORD);
+      }
+    });
   connect(b4, &QPushButton::clicked, this, [this]() {real_->calibration(CAL::SAVE);});
   g->addWidget(b1, 0, 0);
   g->addWidget(b2, 0, 1);
   g->addWidget(b3, 1, 0);
   g->addWidget(b4, 1, 1);
+  g->addWidget(b5, 2, 0, 1, 2);
   p->body()->addLayout(g);
   lbl_calib_ = new QLabel;
   lbl_calib_->setWordWrap(true);
@@ -444,6 +461,13 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
     answer(refuse(false, false));
     if (armOk("이어서 하기")) {
       real_->resumePick();
+    }
+    return;
+  }
+  if (v.action == "gripper_open") {                 // 「아리스 그리퍼 열어」 (2026-11-14): 팔은 그대로, 그리퍼만 열기
+    answer(refuse(false, false));
+    if (armOk("그리퍼 열기")) {
+      backend_->gripper(false);
     }
     return;
   }
