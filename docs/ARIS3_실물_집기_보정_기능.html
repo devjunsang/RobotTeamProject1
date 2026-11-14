@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ARIS3 실물 집기·보정 기능 (2026-11-13 ~ 11-14)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: #fbf8f6; --surface: #ffffff; --fg: #231a1a; --muted: #6b5e5c; --line: #e4d9d4;
+  --red: #a3141c; --gold: #9a6f05; --cyan: #0b7c88; --code-bg: #f3ece8; --quote: #fbefe9;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #120b0c; --surface: #1b1214; --fg: #efe6e3; --muted: #b3a29e; --line: #3a2a2a;
+  --red: #ff6b70; --gold: #e8b931; --cyan: #5ff4ff; --code-bg: #24181a; --quote: #2c1615; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px;
+  padding-block: 32px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+aside.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px);
+  overflow-y: auto; font-size: 13.5px; line-height: 1.5; border-right: 1px solid var(--line); padding-right: 16px; }
+aside.toc .home { display: inline-block; margin-bottom: 12px; color: var(--muted); text-decoration: none; font-size: 13px; }
+aside.toc .toc-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; margin: 6px 0 8px; }
+aside.toc ul { list-style: none; padding: 0; margin: 0; }
+aside.toc li { margin: 5px 0; }
+aside.toc ul ul { padding-left: 12px; border-left: 1px solid var(--line); margin-left: 2px; }
+aside.toc a { color: var(--fg); text-decoration: none; }
+aside.toc a:hover { color: var(--cyan); }
+main { min-width: 0; }
+header.doc { border-bottom: 3px solid var(--red); margin-bottom: 8px; padding-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+main h1 { font-size: clamp(26px, 4.5vw, 36px); line-height: 1.25; margin: 4px 0 6px; text-wrap: balance; }
+main h2 { font-size: 23px; margin: 48px 0 12px; padding-left: 12px; border-left: 5px solid var(--red); text-wrap: balance; }
+main h3 { font-size: 18px; margin: 30px 0 8px; }
+main h4 { font-size: 16px; margin: 22px 0 6px; color: var(--muted); }
+main p, main li { max-width: 72ch; }
+main a { color: var(--cyan); }
+main a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+main ul, main ol { padding-left: 1.4em; }
+main li { margin: 3px 0; }
+main hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0; }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: 13px; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote); border-left: 4px solid var(--gold); border-radius: 0 6px 6px 0; }
+blockquote p { margin: 4px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12.5px; letter-spacing: .04em; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+.doclist { display: grid; gap: 12px; margin-top: 18px; }
+.doclist a { display: block; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  text-decoration: none; color: var(--fg); }
+.doclist a:hover { border-color: var(--red); }
+.doclist b { display: block; font-size: 17px; }
+.doclist span { color: var(--muted); font-size: 14px; }
+.foot { margin-top: 48px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  aside.toc { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="toc" aria-label="목차"><a class="home" href="index.html">← 문서 목록</a><div class="toc-title">목차</div><div class="toc">
+<ul>
+<li><a href="#1">1. 전체 흐름</a></li>
+<li><a href="#2-realsense-d455">2. 카메라: RealSense D455 컬러 + 깊이</a></li>
+<li><a href="#3">3. 색 검출: 층·원근 보정·각도</a><ul>
+<li><a href="#31">3.1 층 (깊이)</a></li>
+<li><a href="#32-grasp_uv">3.2 쌓인 큐브 원근 보정 (grasp_u/v)</a></li>
+<li><a href="#33">3.3 큐브 각도</a></li>
+</ul>
+</li>
+<li><a href="#4-aris3_real_bridge">4. 브리지 집기 보정 (aris3_real_bridge)</a></li>
+<li><a href="#5">5. 카메라 보정: 탁자 블록 마커</a><ul>
+<li><a href="#51-">5.1 블록 자동 기록 (권장 - 사람은 블록 자리만 옮김)</a></li>
+<li><a href="#52">5.2 손으로 기록 (예전 방식, 마커로 정확해짐)</a></li>
+<li><a href="#53-3d">5.3 블록 높이·3D 일관성</a></li>
+</ul>
+</li>
+<li><a href="#6">6. 음성: 「그리퍼 열어」</a></li>
+<li><a href="#7-aris">7. ARIS 화면</a></li>
+<li><a href="#8-cross-package">8. 인터페이스 변경 (cross-package 계약)</a></li>
+<li><a href="#9">9. 시험</a></li>
+<li><a href="#10">10. 실물에서 확인한 것 / 아직인 것</a></li>
+</ul>
+</div>
+</aside>
+<main>
+<header class="doc"><div class="eyebrow">ARIS3 · docs/ARIS3_실물_집기_보정_기능.md</div><h1>ARIS3 실물 집기·보정 기능 (2026-11-13 ~ 11-14)</h1></header>
+
+<p>실물 E0509 + 위쪽 RealSense D455 로 큐브를 집고 쌓기 위해 이틀 동안 더한 기능을 한곳에 정리한다.
+각 기능의 코드 위치, 동작 순서, 끄는 방법, 시험, 아직 확인하지 못한 점을 적는다.</p>
+<blockquote>
+<p>실물 지원은 시험 중이다. 시뮬레이션·합성 영상 시험에서 성공했다고 실물에서도 된다는 뜻은 아니다.
+비상정지는 항상 손이 닿는 곳에 둔다.</p>
+</blockquote>
+<h2 id="1">1. 전체 흐름</h2>
+<pre><code>D455 ──(scripts/aris3_realsense_pub.py)──&gt; 컬러 JPEG 30 Hz · 깊이 PNG 10 Hz · camera_info
+   │
+   ├─(scripts/aris3_color_detector.py)──&gt; /aris3/vision/detections_px
+   │      큐브 색·픽셀·층(깊이)·회전각·집기용 픽셀(원근 보정)
+   │
+   └─(aris3_real_bridge, 보정 ① 블록 마커)── ArUco 마커 중심·깊이
+                                   │
+ARIS (aris3_gui_cpp) ── 음성·클릭·손짓 ──&gt; /aris3/real/pick_place, /aris3/real/calibration
+                                   │
+aris3_real_bridge ── 각도 맞추기(J6) · 중심 맞추기 · 층 높이 ──&gt; E0509 (RobotLink 안전 경로)
+</code></pre>
+<h2 id="2-realsense-d455">2. 카메라: RealSense D455 컬러 + 깊이</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>항목</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>파일</td>
+<td><code>scripts/aris3_realsense_pub.py</code></td>
+</tr>
+<tr>
+<td>발행</td>
+<td><code>/aris3/overhead_camera/image/compressed</code> (1280x720 JPEG 30 Hz), <code>/aris3/overhead_camera/depth/compressed</code> (컬러에 맞춘 깊이 mm, 16 bit PNG, 1/2 크기 10 Hz, format <code>16UC1; png; scale=2</code>), <code>/aris3/overhead_camera/camera_info</code></td>
+</tr>
+<tr>
+<td>실행</td>
+<td><code>~/venvs/aris3_camera/bin/python scripts/aris3_realsense_pub.py</code> (설치는 실행·테스트 가이드)</td>
+</tr>
+</tbody>
+</table></div>
+<p>깊이를 반으로 줄여 보내는 이유: 원래 크기 16 bit PNG 는 한 장 0.5 MB 를 넘어 Fast DDS 가 UDP 조각으로 나누다 버린다.</p>
+<h2 id="3">3. 색 검출: 층·원근 보정·각도</h2>
+<p>파일 <code>scripts/aris3_color_detector.py</code> (<code>--show</code> 로 OpenCV 창). 출력 <code>DetectedObject</code> 의 필드:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>필드</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pose.position.x, y</code></td>
+<td>큐브 윗면 중심 픽셀 (화면 표시용)</td>
+</tr>
+<tr>
+<td><code>pose.orientation</code></td>
+<td>영상에서 큐브 면 방향 (z 축 회전, 0~90°)</td>
+</tr>
+<tr>
+<td><code>height_mm</code>, <code>level</code></td>
+<td>탁자에서 윗면까지 높이, 쌓인 층 (0 = 모름)</td>
+</tr>
+<tr>
+<td><code>grasp_u</code>, <code>grasp_v</code></td>
+<td>집기용 픽셀: 2층 이상이면 1층 높이로 원근 보정한 픽셀 (0, 0 = 채우지 않음)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="31">3.1 층 (깊이)</h3>
+<ol>
+<li>
+<p>큐브 둘레 고리(큐브 반쪽 폭의 2~5 배)의 깊이를 3D 점으로 바꿔 탁자 평면을 RANSAC 으로 맞춘다
+   (판 구멍·옆 큐브·옆면은 평면에서 먼 점이라 빠진다).</p>
+</li>
+<li>
+<p>윗면 = 큐브 중심 원(0.8 r) 깊이 중 카메라에 가까운 쪽 25 % 지점.</p>
+</li>
+<li>높이 = 윗면 점에서 탁자 평면까지 <strong>수직 거리</strong>. 층 = round(높이 / 40 mm).</li>
+</ol>
+<p>카메라가 비스듬해서 같은 픽셀의 깊이 차이로 재면 2층이 88 mm 로 나왔다 - 그래서 평면까지 수직 거리로 잰다.
+실측: 1층 37~42 mm, 2층 78~80 mm.</p>
+<p><strong>깜빡임 수정</strong>: 평면 맞추기 마지막의 <code>np.linalg.svd</code> 가 점 약 5000 개에 5000 x 5000 행렬까지 만들어 큐브 하나에
+170 ms 가 걸렸다. 4 개면 한 장 0.7 초 -&gt; 깊이가 밀려 다음 장이 「층 모름」 -&gt; 「· 2층」 글자가 깜빡였다.
+<code>full_matrices=False</code> 로 큐브당 3.5 ms, 발행 3 Hz -&gt; 13.4 Hz, 「층 모름」 장 0 %.</p>
+<h3 id="32-grasp_uv">3.2 쌓인 큐브 원근 보정 (<code>grasp_u/v</code>)</h3>
+<p>카메라 보정은 1층 큐브 윗면 높이 기준이라, 2층 이상 윗면은 카메라 바로 아래 점에서 바깥쪽으로 밀려 보인다
+(카메라 0.8 m, 바로 아래에서 300 mm 떨어진 2층이면 약 16 mm). 윗면 중심 3D 점을 탁자 평면 법선을 따라 1층 윗면
+높이로 내린 뒤 다시 투영한 픽셀을 <code>grasp_u/v</code> 에 담는다 (<code>cube_top_measure</code>). 브리지는 이 픽셀로 로봇 좌표를 계산한다.</p>
+<h3 id="33">3.3 큐브 각도</h3>
+<p>윤곽의 <code>cv2.minAreaRect</code> 각도를 90° 대칭으로 접어 <code>pose.orientation</code> 에 담는다. 작은 큐브는 장마다 2~4° 흔들린다.</p>
+<h2 id="4-aris3_real_bridge">4. 브리지 집기 보정 (<code>aris3_real_bridge</code>)</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>기능</th>
+<th>하는 일</th>
+<th>끄기</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>그리퍼 각도 맞추기</td>
+<td>큐브 위 접근 높이에서 J6 만 돌려 그리퍼 면을 큐브 면에 맞춘 뒤 집는다. 놓을 때는 큐브 면이 팔 방향(베이스 -&gt; 놓을 자리)과 평행·수직, 쌓을 때는 받침 큐브와 같은 각도. 90° 대칭이라 최대 45°, 한 번 10° 씩 (<code>RobotLink.jog_joint</code>), 2° 미만이면 돌리지 않음</td>
+<td><code>align_yaw:=false</code></td>
+</tr>
+<tr>
+<td>쌓인 큐브 집기</td>
+<td>층만큼 집는 높이를 올리고 (<code>level_lift</code>), 위치는 <code>grasp_u/v</code> 로. 4층 넘게 재지면 거부</td>
+<td>-</td>
+</tr>
+<tr>
+<td>큐브 중심 맞추기</td>
+<td>각도를 맞춘 뒤 접근 높이에서 새 검출 3 장의 중앙값으로 큐브 중심을 다시 재서 그 바로 위로 옮긴 다음 하강. 1.5 mm 미만이면 그대로, 25 mm 넘으면 큐브가 움직인 것으로 보고 멈춤. 넓이가 30 % 넘게 다른 장(그리퍼에 일부 가려짐)은 버리고, 못 재면 처음 좌표로</td>
+<td><code>center_grasp:=false</code></td>
+</tr>
+<tr>
+<td>그리퍼 열면 「빈손」</td>
+<td>그리퍼 열기(버튼·음성)가 끝나면 잡음 상태를 지운다</td>
+<td>-</td>
+</tr>
+</tbody>
+</table></div>
+<p>집기 순서: 접근 높이로 -&gt; (각도 맞추기) -&gt; (중심 맞추기) -&gt; 열기 -&gt; 하강 -&gt; 닫기 -&gt; 잡았는지 확인 -&gt; 들기.
+각도 계산: Doosan TCP 자세 <code>[A, B, C]</code> (ZYZ 오일러) 로 툴 X 축의 베이스 방향을 구하고, 툴 Z 축이 아래(<code>·z ≈ -1</code>)면
+J6 를 d 돌릴 때 그리퍼 yaw 는 -d 돈다. 손목이 180° 넘게 감기면 90° 다른 같은 모양 쪽을 고른다.
+전제: 그리퍼 중심이 J6 축 위 (손목을 돌려도 손끝 XY 가 그대로).</p>
+<h2 id="5">5. 카메라 보정: 탁자 블록 마커</h2>
+<p>보정 기준은 「1층 큐브 윗면 중심 픽셀 -&gt; 그 큐브를 집는 TCP」 호모그래피 (<code>PixelCalibration</code>, 4 점 이상).
+블록 윗면에 ArUco 마커(<code>DICT_4X4_50</code>, ID 0, 파라미터 <code>marker_id</code>)를 천장을 보게 붙여 쓴다.</p>
+<h3 id="51-">5.1 블록 자동 기록 (권장 - 사람은 블록 자리만 옮김)</h3>
+<p>ARIS 「블록 자동 기록 (로봇이 잡아서)」 (<code>RealCalibration AUTO_RECORD</code>):</p>
+<ol>
+<li>마커 중심·각도를 재서 <strong>지금 보정</strong>으로 블록 위치 계산 (오차 몇 mm - 손가락이 약 106 mm 벌어져 충분).</li>
+<li>
+<p>블록 위 -&gt; 손목을 블록 각도에 맞춤 -&gt; 열기 -&gt; 하강 -&gt; <strong>닫기</strong>(한 축 가운데) -&gt; 열기 -&gt; 올려 <strong>손목 90°</strong> -&gt; 하강 -&gt;
+   <strong>닫기</strong>(다른 축도 가운데) -&gt; 잡았는지 확인 -&gt; <strong>그때 TCP = 블록 중심 기록</strong> -&gt; 열기 -&gt; 올리기 -&gt; 홈.</p>
+</li>
+<li>
+<p>홈에서 마커를 다시 재서 (가운데 맞추며 블록이 밀렸을 수 있음) 자동 보정점 하나.</p>
+</li>
+<li>블록 자리를 바꿔 6~8 번 -&gt; 「보정 저장」 = 자동 보정점으로 <strong>새 보정</strong> (예전 파일은 <code>real_camera_calib.json.bak-시각</code>).</li>
+</ol>
+<p>자동 보정점은 지금 보정과 따로 모은다 (지금 보정은 블록을 찾아가는 데 씀). 「마지막 점 삭제」 는 자동 보정점부터.
+시작하지 않는 경우: 그리퍼가 무언가를 잡고 있음, 마커가 안 보임, 블록이 도달 범위(150~750 mm) 밖.
+두 번째로 닫아도 빈손이면 기록하지 않고 멈춘다.</p>
+<h3 id="52">5.2 손으로 기록 (예전 방식, 마커로 정확해짐)</h3>
+<p>「① 마커·큐브 픽셀 기억」 -&gt; 조그·손으로 움직이기로 그리퍼를 블록을 집는 자세로 -&gt; 「② 로봇 위치 기록」.
+①은 마커가 보이면 마커 중심(대각선 교점, 실측 흔들림 0.24 px ≈ 0.3 mm), 없으면 화면에서 고른 큐브(60 px 안).</p>
+<h3 id="53-3d">5.3 블록 높이·3D 일관성</h3>
+<ul>
+<li>
+<p>마커 둘레 탁자 평면까지 깊이로 블록 높이를 잰다 (실측 39.8 mm). 큐브(40 mm)와 5 mm 넘게 다르면 픽셀은 큐브 높이 윗면
+  중심으로, 집는 높이 Z 는 TCP z - (블록 - 40 mm) 로 고쳐 기록한다.</p>
+</li>
+<li>
+<p>마커 3D 점(<code>cam</code>)이 있는 점이 4 개 이상이면 강체 변환 하나로 맞춘 잔차를 보정 요약에 「마커 3D 일관성 최대 … mm」 로
+  보인다. 한 점만 크면 그 점을 잘못 기록한 것.</p>
+</li>
+</ul>
+<p>코드: <code>aris3_real_bridge/aris3_real_bridge/marker_calib.py</code> (마커 찾기·각도·깊이·평면·일관성),
+<code>bridge_node.py</code> (<code>_measure_marker</code>, <code>_auto_start</code>), <code>real_pick.py</code> (<code>block_calibration_point</code>).</p>
+<h2 id="6">6. 음성: 「그리퍼 열어」</h2>
+<p>「아리스, 그리퍼 열어 / 손 펴 / 집게 벌려」 -&gt; 팔은 그대로 그리퍼만 연다 (대답 「네, 그리퍼를 엽니다.」).
+그리퍼·손·집게 + 열/펴/벌 이 함께 있어야 한다 (「문 열어」·「열어」 만은 아님 - 잡담으로 큐브를 떨어뜨리지 않게).
+낱말 표(<code>command_parser.py</code>)와 Claude Haiku 해석기(<code>llm_parser.py</code>) 모두 <code>gripper_open</code>. 조작 허용은 음성으로 켜지지 않는다.</p>
+<h2 id="7-aris">7. ARIS 화면</h2>
+<ul>
+<li>카메라 라벨: <code>red_cube_2 · 2층 · 42° 0.93</code> (이름 · 층 · 각도 · 신뢰도).</li>
+<li>실물 집기 패널: 「① 마커·큐브 픽셀 기억」, 「② 로봇 위치 기록」, 「마지막 점 삭제」, 「보정 저장」, 「블록 자동 기록 (로봇이 잡아서)」.</li>
+<li>그리퍼 패널 「잡은 상태」: 큐브 잡음 / 빈손 / 모름 (실물은 브리지 판단, 시뮬레이션은 닫힌 정도).</li>
+</ul>
+<h2 id="8-cross-package">8. 인터페이스 변경 (cross-package 계약)</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>인터페이스</th>
+<th>변경</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>msg/DetectedObject</code></td>
+<td><code>height_mm</code>, <code>level</code> (11-13), <code>grasp_u</code>, <code>grasp_v</code> (11-14). <code>pose.orientation</code> 에 픽셀 검출의 회전각</td>
+</tr>
+<tr>
+<td><code>srv/RealCalibration</code></td>
+<td><code>REMEMBER</code> 가 블록 마커 우선, <code>AUTO_RECORD=6</code> 추가</td>
+</tr>
+<tr>
+<td><code>action/RealPickPlace</code></td>
+<td>변경 없음 (각도·중심은 브리지가 검출에서 읽음)</td>
+</tr>
+</tbody>
+</table></div>
+<p>인터페이스를 바꾸면 쓰는 패키지를 모두 다시 빌드하고 노드를 껐다 켠다. <strong>ARIS 가 켜진 채로 인터페이스를 다시
+빌드하지 않는다</strong> (실행 중인 노드가 쓰는 라이브러리를 덮어씀).</p>
+<h2 id="9">9. 시험</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>시험</th>
+<th>개수</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aris3_real_bridge/test</code></td>
+<td>80</td>
+<td>각도 계산·순서, 중심 맞추기(건너뜀·멈춤·가려짐), 쌓인 큐브 픽셀, 블록 마커 ① ②, 블록 자동 기록 전체 흐름, 자동 보정점 저장</td>
+</tr>
+<tr>
+<td><code>aris3_real_bridge/test/test_marker_calib.py</code></td>
+<td>(위에 포함)</td>
+<td>합성 장면: 마커 중심 0.5 px, 블록 높이 25/40/60 mm, 큐브 높이 픽셀 1 px, 각도 1.5°, 일관성 검사</td>
+</tr>
+<tr>
+<td><code>scripts/test_aris3_color_detector.py</code></td>
+<td>13</td>
+<td>비스듬한 카메라 합성 깊이: 1~3층 높이, 원근 보정 픽셀 1.5~2 px, 각도</td>
+</tr>
+<tr>
+<td><code>aris3_voice/test</code></td>
+<td>62 (+ API 15)</td>
+<td><code>gripper_open</code> 낱말, 「열어」 만은 아님</td>
+</tr>
+<tr>
+<td><code>aris3_gui_cpp</code> gtest</td>
+<td>12</td>
+<td>대답 문구 포함</td>
+</tr>
+<tr>
+<td>가상 컨트롤러 자체 시험</td>
+<td>7/7</td>
+<td><code>aris --mode real --sim --selftest</code> - 놓는 각도 목표 11.4° -&gt; Gazebo 11.45° (J6 부호 확인)</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-bash">PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q aris3_real_bridge/test scripts/test_aris3_color_detector.py aris3_voice/test
+</code></pre>
+<p>가상 컨트롤러 자체 시험은 월드가 큐브를 최종 배치로 옮기기 전에 클릭하면 빈자리를 집어 실패한다 (시험 자체의 경쟁 상태).
+월드를 먼저 띄워 배치가 끝난 뒤 돌리면 통과.</p>
+<h2 id="10">10. 실물에서 확인한 것 / 아직인 것</h2>
+<p>확인 (2026-11-14):</p>
+<ul>
+<li>각도 맞추기: 큐브 39° 에 J6 -38.9° (4 번에 나눠) 돌려 잡기 성공. 중심 맞추기 「이미 중심 위」.</li>
+<li>D455 마커 측정: 96 장 모두 검출, 중심 흔들림 0.24 px, 블록 높이 39.8 mm.</li>
+</ul>
+<p>아직:</p>
+<ul>
+<li>블록 자동 기록 실물 실행 (블록이 판 구멍·모서리에 걸리지 않고 미끄러지는지).</li>
+<li>쌓인 큐브 원근 보정의 실물 정확도, 중심 맞추기가 실물에서 그리퍼에 가려지는 정도.</li>
+<li>그리퍼 중심이 J6 축 위라는 가정.</li>
+</ul>
+<p class="foot">원문: <code>docs/ARIS3_실물_집기_보정_기능.md</code> · <code>scripts/docs_md_to_html.py</code> 로 만든 페이지 (원문을 고친 뒤 다시 돌리면 갱신)</p>
+</main>
+</div>
+</body>
+</html>

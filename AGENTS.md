@@ -25,6 +25,17 @@
 - The integration script `scripts/test_task_manager_sim.sh` requires the Gazebo workcell and Task Manager to be running. Do not treat it as a standalone unit test.
 - After changing ROS interfaces, rebuild the interface package and every affected dependent package.
 
+## Git Workflow
+
+- Commit after every completed task (one logical change per commit), then push. Do not leave finished work uncommitted.
+- Push to a feature branch, never directly to `main`. Use the current task branch if one exists; otherwise create
+  `feat/<topic>` (or `fix/`, `docs/`) from an up-to-date `main`. Merge into `main` only through a pull request when the user asks.
+- Before committing, run the focused tests for the packages you changed and make sure they pass; say so in the commit body if a test could not run.
+- Update the relevant README, `ROLE.txt`, and `docs/` together with the code in the same commit (or the commit right after),
+  and regenerate `docs/*.html` with `scripts/docs_md_to_html.py` when a `.md` in `docs/` changes.
+- Never force-push or rewrite pushed history without the user's explicit approval.
+- Do not commit work you did not make without asking; if the working tree has someone else's changes, ask before including them.
+
 ## Implementation Notes
 
 - Preserve the existing C++17, `rclcpp`, and ROS 2 action conventions in `aris3_task_manager`; follow neighboring code and tests.
