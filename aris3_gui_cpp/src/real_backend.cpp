@@ -124,6 +124,8 @@ void RealBackend::sendAction(typename rclcpp_action::Client<A>::SharedPtr client
         // 닿지 않는 위치 (2026-11-14): 브리지가 거리로 거부했거나 컨트롤러가 NOT REACHABLE 로 거부 -> 말로 알린다
         if (msg.find("닿지 않는 위치") != std::string::npos) {
           node_->say("거기는 팔이 닿지 않아요.");
+        } else if (msg.find("너무 가까운 위치") != std::string::npos) {   // 베이스에 너무 가까움 (관절 한계)
+          node_->say("거기는 로봇에 너무 가까워서 팔이 닿지 않아요.");
         }
       }
     };
@@ -400,6 +402,15 @@ std::optional<RealBackend::Px> RealBackend::toRobot(double u, double v)
   const double x = h[0] * u + h[1] * v + h[2], y = h[3] * u + h[4] * v + h[5], w = h[6] * u + h[7] * v + h[8];
   if (std::abs(w) < 1e-12) {return std::nullopt;}
   return Px{x / w, y / w};
+}
+
+std::optional<std::array<double, 9>> RealBackend::calibMatrix()
+{
+  const auto s = state();
+  if (!s || !s->calib_ready) {return std::nullopt;}
+  std::array<double, 9> h{};
+  for (std::size_t k = 0; k < 9; ++k) {h[k] = s->calib_homography[k];}
+  return h;
 }
 
 std::optional<double> RealBackend::graspZ()

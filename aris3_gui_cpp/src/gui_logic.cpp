@@ -222,6 +222,72 @@ bool tooFar(double x_mm, double y_mm, double max_mm)
   return std::hypot(x_mm, y_mm) > max_mm;
 }
 
+std::vector<std::vector<std::array<double, 2>>> reachBoundaryPx(const std::array<double, 9> & H, double radius_mm,
+  int n, double max_px)
+{
+  std::vector<std::vector<std::array<double, 2>>> out;
+  // 3x3 역행렬 (여인수). 행렬식이 0 에 가까우면 옮길 수 없다
+  const double a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7], i = H[8];
+  const double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  if (std::abs(det) < 1e-12 || n < 3 || radius_mm <= 0.0) {return out;}
+  const std::array<double, 9> inv{
+    (e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+    (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+    (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det};
+  // 로봇 (x, y) mm -> 픽셀. w 의 부호가 작업 공간(로봇 앞쪽) 점과 다르면 영상 평면 뒤 = 보이지 않는 점
+  const auto project = [&](double x, double y, double & u, double & v) {
+      const double w = inv[6] * x + inv[7] * y + inv[8];
+      u = (inv[0] * x + inv[1] * y + inv[2]) / w;
+      v = (inv[3] * x + inv[4] * y + inv[5]) / w;
+      return w;
+    };
+  double ru = 0.0, rv = 0.0;
+  const double w_ref = project(radius_mm * 0.7, 0.0, ru, rv);
+  std::vector<std::array<double, 2>> cur;
+  bool all_ok = true;
+  for (int k = 0; k < n; ++k) {
+    const double th = 2.0 * M_PI * k / n;
+    double u = 0.0, v = 0.0;
+    const double w = project(radius_mm * std::cos(th), radius_mm * std::sin(th), u, v);
+    const bool ok = w * w_ref > 0.0 && std::abs(w) > 1e-3 * std::abs(w_ref) && std::isfinite(u) && std::isfinite(v) &&
+      std::abs(u) < max_px && std::abs(v) < max_px;
+    if (ok) {
+      cur.push_back({u, v});
+    } else {
+      all_ok = false;
+      if (cur.size() > 1) {out.push_back(cur);}
+      cur.clear();
+    }
+  }
+  if (all_ok && !cur.empty()) {
+    cur.push_back(cur.front());                        // 원 전체가 보임: 닫는다
+    out.push_back(cur);
+  } else if (cur.size() > 1) {
+    // 끝 조각이 첫 조각과 이어져 있으면(0° 를 지나는 호) 하나로 붙인다
+    if (!out.empty() && out.front().size() > 1) {
+      double u0 = 0.0, v0 = 0.0;
+      const double w0 = project(radius_mm, 0.0, u0, v0);
+      if (w0 * w_ref > 0.0 && std::abs(out.front().front()[0] - u0) < 1e-6 && std::abs(out.front().front()[1] - v0) < 1e-6) {
+        cur.insert(cur.end(), out.front().begin(), out.front().end());
+        out.front() = cur;
+        return out;
+      }
+    }
+    out.push_back(cur);
+  }
+  return out;
+}
+
+bool tooClose(double x_mm, double y_mm, double min_mm)
+{
+  return std::hypot(x_mm, y_mm) < min_mm;
+}
+
+std::string tooCloseReply(const std::string & what)
+{
+  return what + josa(what, "은", "는") + " 로봇에 너무 가까워서 팔이 닿지 않아요.";
+}
+
 std::string tooFarReply(const std::string & what)
 {
   return what + josa(what, "은", "는") + " 너무 멀어서 팔이 닿지 않아요.";
@@ -244,6 +310,7 @@ std::string voiceReply(const std::string & action, const std::string & color, co
   }
   if (action == "place") {return ref_place ? "네, 고르신 자리에 내려놓겠습니다." : "네, 여기에 내려놓겠습니다.";}
   if (action == "find") {return "네, " + obj + josa(obj, "을", "를") + " 찾아볼게요.";}   // 찾기 (2026-11-14)
+  if (action == "scan") {return "네, 큐브를 찾아볼게요.";}   // 탐색 (2026-11-14): 세 가지 색이 보일 때까지
   if (action == "home") {return "네, 홈 자세로 돌아갑니다.";}
   if (action == "stop") {return "네, 멈춥니다.";}
   if (action == "resume") {return "네, 이어서 하겠습니다.";}

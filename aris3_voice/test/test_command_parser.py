@@ -285,3 +285,16 @@ def test_find_needs_color_and_pick_wins():
     cmd = parse_command("파란 큐브 찾아서 집어줘")
     assert (cmd["action"], cmd["color"]) == ("pick", "blue")
 
+
+# ---------------------------------------------------------------- 탐색 (2026-11-14)
+def test_scan_and_scan_with_color_is_find():
+    """색 없는 「탐색」 = scan (세 가지 색이 보일 때까지). 색을 말하면 그 색 찾기(find). 집기 말이 있으면 집기."""
+    for text in ("탐색", "탐색해", "탐색 시작해줘", "주변 둘러봐"):
+        cmd = parse_command(text)
+        assert (cmd["action"], cmd["color"]) == ("scan", ""), text
+        ok, why = validate_command(cmd, KNOWN)
+        assert ok and "SCAN" in why
+    cmd = parse_command("파란 큐브 탐색해")
+    assert (cmd["action"], cmd["color"]) == ("find", "blue")
+    assert parse_command("탐색해서 빨간 큐브 집어줘")["action"] == "pick"
+

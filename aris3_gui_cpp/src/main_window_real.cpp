@@ -18,6 +18,18 @@ namespace
 constexpr int kSearchSpeedPct = 15;
 // 한 번에 돌리는 J1 [deg]: 브리지(RobotLink) 관절 조그 한도 10°. 매 10° 마다 멈춰 카메라를 본다
 constexpr double kSearchStepDeg = 10.0;
+// 탐색 (2026-11-14, 「아리스 탐색」): 화면에 서로 다른 큐브 색이 이만큼 보이면 끝 (빨강·노랑·파랑)
+constexpr std::size_t kScanColors = 3;
+
+// 검출 목록에 있는 서로 다른 색의 수
+std::size_t distinctColors(const std::vector<aris3_interfaces::msg::DetectedObject> & objs)
+{
+  std::vector<std::string> seen;
+  for (const auto & o : objs) {
+    if (!o.color.empty() && std::find(seen.begin(), seen.end(), o.color) == seen.end()) {seen.push_back(o.color);}
+  }
+  return seen.size();
+}
 }  // namespace
 
 namespace aris
@@ -495,6 +507,37 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
     homeVoice(heard);
     return;
   }
+  // 탐색 (2026-11-14): 「아리스 탐색」 - 화면에 세 가지 색 큐브가 모두 보일 때까지 팔(J1)을 좌우로 돌리며 찾는다.
+  // 팔에 가려 안 보이는 큐브를 드러내는 용도. 집지는 않는다
+  if (v.action == "scan") {
+    const std::size_t n = distinctColors(node_->snapshot().px_objects);
+    if (n >= kScanColors) {
+      node_->log("INFO", "탐색: 큐브 색 " + std::to_string(n) + "가지가 이미 보임");
+      if (allow_search) {node_->say("이미 세 가지 색이 모두 보여요.");}
+      return;
+    }
+    if (!allow_search) {return;}                     // 탐색이 끝났는데도 모자람 (탐색 쪽에서 이미 말함)
+    if (!node_->statusFlags().px_detections) {
+      node_->log("WARN", "탐색: 색 검출이 오지 않음 (scripts/aris3_color_detector.py 확인)");
+      node_->say("카메라 색 검출이 꺼져 있어요.");
+      return;
+    }
+    const auto why = refuse(false, false);           // 팔을 돌리므로 조작 허용·준비 확인 (보정은 필요 없음)
+    if (!why.empty()) {
+      node_->say(why);
+      return;
+    }
+    node_->say(voiceReply("scan", "", "", false));
+    node_->log("INFO", "탐색 시작: 큐브 색 " + std::to_string(n) + "가지만 보임 - 세 가지가 보일 때까지 J1 을 좌우로 "
+      "천천히 돌립니다 (정지하면 그만)");
+    ColorSearch S;
+    S.v = v;
+    S.want_distinct = kScanColors;
+    S.settle = std::chrono::steady_clock::now();
+    S.deadline = S.settle + std::chrono::seconds(90);
+    search_ = S;
+    return;
+  }
   // 찾기 (2026-11-14): 「아리스 파란색 큐브 찾아」 - 보이면 그 큐브를 고르고, 안 보이면 팔(J1)을 좌우로 돌리며 찾는다.
   // 집지는 않는다. 찾은 뒤에는 「아리스 이거 집어줘」 로 이어갈 수 있다 (화면에서 고른 것과 같음)
   if (v.action == "find") {
@@ -583,10 +626,17 @@ void MainWindow::realVoice(const aris3_interfaces::msg::VoiceCommand & v, bool a
   // 「네, …를 잡습니다」 라고 대답한 뒤 조용히 실패하지 않게, 보내기 전에 본다 (보정이 없으면 판단하지 않음)
   const auto unreachable = [&](const std::array<double, 2> & px, const std::string & what) {
       const auto xy = real_->toRobot(px[0], px[1]);
-      if (!xy || !tooFar((*xy)[0], (*xy)[1])) {return false;}
-      node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 닿지 않는 위치 (베이스에서 " +
-        std::to_string(static_cast<int>(std::hypot((*xy)[0], (*xy)[1]))) + " mm, 최대 " +
-        std::to_string(static_cast<int>(kReachMaxMm)) + " mm) - 로봇 쪽으로 당겨 놓으세요");
+      if (!xy) {return false;}
+      const int dist = static_cast<int>(std::hypot((*xy)[0], (*xy)[1]));
+      if (tooClose((*xy)[0], (*xy)[1])) {             // 너무 가까움 (2026-11-14): 내려가다 관절 한계에 걸리는 자리
+        node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 너무 가까운 위치 (베이스에서 " + std::to_string(dist) +
+          " mm, 최소 " + std::to_string(static_cast<int>(kReachMinMm)) + " mm) - 로봇에서 멀리 놓으세요");
+        node_->say(tooCloseReply(what));
+        return true;
+      }
+      if (!tooFar((*xy)[0], (*xy)[1])) {return false;}
+      node_->log("WARN", "음성 「" + v.text + "」: " + what + " 이(가) 닿지 않는 위치 (베이스에서 " + std::to_string(dist) +
+        " mm, 최대 " + std::to_string(static_cast<int>(kReachMaxMm)) + " mm) - 로봇 쪽으로 당겨 놓으세요");
       node_->say(tooFarReply(what));
       return true;
     };
@@ -716,6 +766,7 @@ void MainWindow::searchTick()
     };
   std::string names;
   for (const auto & c : S.colors) {names += (names.empty() ? "" : ", ") + objectKo(c, "cube");}
+  if (S.want_distinct > 0) {names = "세 가지 색 큐브";}   // 탐색 (2026-11-14): 특정 색이 아니라 색의 수
   if (now > S.deadline) {
     fail("찾지 못했어요.", "제한 시간(90 초) 초과");
     return;
@@ -735,11 +786,13 @@ void MainWindow::searchTick()
   if (now < S.settle || moving) {return;}
   std::vector<std::string> seen;
   for (const auto & o : node_->snapshot().px_objects) {seen.push_back(o.color);}
-  if (missingColors(S.colors, seen).empty()) {      // 찾음 -> 원래 명령 실행 (이번에는 다시 찾지 않음)
+  const bool found = S.want_distinct > 0 ? distinctColors(node_->snapshot().px_objects) >= S.want_distinct :
+    missingColors(S.colors, seen).empty();
+  if (found) {                                      // 찾음 -> 원래 명령 실행 (이번에는 다시 찾지 않음)
     const double off = (st && st->joints_valid && S.start_j1) ? st->joints_deg[0] - *S.start_j1 : 0.0;
     node_->log("INFO", "색 탐색: " + names + " 찾음 (시작 기준 J1 " + std::to_string(static_cast<int>(std::lround(off))) +
       "°) - 명령을 이어서 실행");
-    node_->say("찾았어요.");
+    node_->say(S.want_distinct > 0 ? "세 가지 색을 모두 찾았어요." : "찾았어요.");
     const auto v = S.v;
     search_.reset();
     realVoice(v, false);
@@ -756,6 +809,12 @@ void MainWindow::searchTick()
   const auto sweep = searchSweepDeg();
   while (S.step < sweep.size() && std::abs(sweep[S.step] - offset) < 1.0) {++S.step;}   // 이 목표는 도착
   if (S.step >= sweep.size()) {
+    if (S.want_distinct > 0) {                       // 탐색: 다 돌아봤는데 세 가지가 안 됨
+      const std::size_t n = distinctColors(node_->snapshot().px_objects);
+      fail("찾아봤지만 큐브 색이 " + std::to_string(n) + "가지만 보여요.",
+        "세 가지 색을 찾지 못함 - " + std::to_string(n) + "가지만 보임 (시작 자세로 돌아옴)");
+      return;
+    }
     const auto last = objectKo(S.colors.back(), "cube");
     fail("찾아봤지만 " + names + josa(last, "이", "가") + " 보이지 않아요.", names + " 을(를) 찾지 못함 (시작 자세로 돌아옴)");
     return;

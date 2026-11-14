@@ -110,11 +110,13 @@ def cart_vel(pct):
 
 # 결과 문장에 넣는 표시: 화면(aris3_gui_cpp)이 이 말을 보고 「팔이 닿지 않아요」 라고 말한다 (2026-11-14)
 UNREACHABLE = '닿지 않는 위치'
+TOO_CLOSE = '너무 가까운 위치'      # 베이스에 너무 가까워 관절 한계에 걸리는 자리 (화면이 「너무 가까워서 …」 라고 말한다)
 
 
 def controller_unreachable(lines):
-    """로봇 로그 줄들에 컨트롤러의 도달 불가 경고(「... is NOT REACHABLE」)가 있는가."""
-    return any('NOT REACHABLE' in ln for ln in lines)
+    """로봇 로그 줄들에 컨트롤러의 도달 불가 경고가 있는가: 「... is NOT REACHABLE」 (너무 멀다) 또는
+    「Joint Axis N angle beyond max/min limit」 (관절 한계 - 베이스에 너무 가까울 때)."""
+    return any('NOT REACHABLE' in ln or ('Joint Axis' in ln and 'beyond' in ln and 'limit' in ln) for ln in lines)
 
 
 def hold_code(holding, cls=RealRobotState):
@@ -141,6 +143,10 @@ class RealBridge(Node):
         # 닿는 거리 (2026-11-14): 베이스에서 이보다 먼 큐브·놓을 자리는 출발 전에 거부한다. 그리퍼를 아래로 향한 채
         # 접근 높이(집는 높이 + 100 mm)로 가야 하는데, 실물에서 686 mm 는 갔고 716 mm 는 컨트롤러가 NOT REACHABLE 로 거부했다
         self.declare_parameter('reach_max_mm', 700.0, ANY_TYPE)
+        # 가까운 쪽 한계 (2026-11-14): 베이스에 너무 가까우면 집는 높이로 내려가다 3번 관절이 한계(135°)를 넘는다.
+        # 실물에서 약 210 mm 는 하강 중 「Joint Axis 3 angle beyond max limit」 로 멈췄고 428 mm 는 됐다.
+        # 그때 관절 각도로 어림하면 집는 높이에서 한계가 약 260 mm - 여유를 두어 300 mm
+        self.declare_parameter('reach_min_mm', 300.0, ANY_TYPE)
         self.link, self.mgr, self.conn = link, mgr, conn
         self.state_ko = state_ko or {}
         self.arm_timeout = float(self.get_parameter('arm_timeout_s').value)
@@ -770,11 +776,14 @@ class RealBridge(Node):
             far.append((g.target_name or '큐브', math.hypot(x, y)))
         if g.kind in (G.PLACE_AT, G.PICK_AND_PLACE, G.PICK_AND_STACK, G.PLACE_ON):
             far.append(('놓을 자리', math.hypot(px, py)))
+        near_min = float(self.get_parameter('reach_min_mm').value)
+        close = [(n, r) for n, r in far if r < near_min]
         far = [(n, r) for n, r in far if r > reach]
-        if far:
+        if far or close:
             res.success = False
-            res.message = (f'{what} 거부: {UNREACHABLE} - ' + ', '.join(f'{n} 까지 {r:.0f} mm' for n, r in far)
-                           + f' (최대 {reach:.0f} mm)')
+            res.message = (f'{what} 거부: {UNREACHABLE if far else TOO_CLOSE} - '
+                           + ', '.join(f'{n} 까지 {r:.0f} mm' for n, r in (far or close))
+                           + (f' (최대 {reach:.0f} mm)' if far else f' (최소 {near_min:.0f} mm)'))
             self.get_logger().warn(res.message)
             return self._finish(goal_handle, res)
         for n in notes:

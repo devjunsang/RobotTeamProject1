@@ -39,6 +39,7 @@ listening.py (strip_wake_word, UtteranceSegmenter - 적응형 소음 문턱) pyt
   LLM 프롬프트에 실제 오인식 예(혐의로->홈) 추가. pytest 53개 (+ 실제 API 10개). 자세한 설명은 README.md.
 2026-11-14: 큐브 번호 - 「1번 파란색 큐브」 -> VoiceCommand.number, 쌓기 받침은 target_number (낱말 표 + LLM 스키마).
 2026-11-14: 올려놓기 (place + target_color: 「빨간 큐브 위로 올려놔」) · 찾기 (find: 「파란색 큐브 찾아」) 추가.
+2026-11-14: 탐색 (scan: 색 없이 「탐색」 - 화면에 세 가지 색이 보일 때까지) 추가.
   LLM 스키마의 정수 enum 은 실제 API 로 확인하지 못함 (시험한 키의 잔액 부족) - 거절되면 낱말 표로 떨어진다.
 
 [참고]

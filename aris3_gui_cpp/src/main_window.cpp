@@ -758,7 +758,9 @@ void MainWindow::onVoiceRun(bool automatic)
     }
     return;
   }
-  if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect" || v->action == "find") {
+  if (v->action == "resume" || v->action == "power_on" || v->action == "disconnect" || v->action == "find" ||
+    v->action == "scan")
+  {
     node_->log("WARN", "음성 「" + v->text + "」: 실물 모드(--mode real)에서만 지원 - 시뮬레이션 모드는 Connect 버튼을 쓰세요");
     node_->say("그 명령은 이 모드에서는 할 수 없어요.");
     return;
@@ -816,6 +818,14 @@ void MainWindow::refreshCamera()
   camera_->setSelection(real_ ? std::string() : sel_id_, sel_place_, s.task_running ? current_color_ : std::string());
   if (real_) {
     camera_->setPixelMarks(place_px_, real_->calibPendingPx());
+    // 닿는 범위 경계선 (2026-11-14): 카메라 보정이 있으면 베이스에서 kReachMaxMm 인 원을 영상에 그린다
+    if (const auto H = real_->calibMatrix()) {
+      camera_->setReachBoundary(reachBoundaryPx(*H, kReachMaxMm),
+        QStringLiteral("닿는 범위 %1 mm").arg(kReachMaxMm, 0, 'f', 0),
+        reachBoundaryPx(*H, kReachMinMm), QStringLiteral("최소 %1 mm").arg(kReachMinMm, 0, 'f', 0));
+    } else {
+      camera_->setReachBoundary({}, QString());
+    }
   }
   camera_->setFrame(s.image, s.image_seq, s.objects, s.px_objects, cam);
 }

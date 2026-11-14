@@ -23,7 +23,8 @@ def generate_launch_description():
             ('cube_mm', '0.0', '쌓기에 쓰는 큐브 높이 [mm] (0 이면 실물 40 / 가상 50)'),
             ('align_yaw', 'true', '그리퍼 각도 맞추기 (집기: 큐브 면, 놓기: 팔 방향, 쌓기: 받침 큐브)'),
             ('center_grasp', 'true', '집기 직전 큐브 중심 맞추기 (접근 높이에서 다시 재서 그 위로)'),
-            ('reach_max_mm', '700.0', '베이스에서 이보다 먼 큐브·놓을 자리는 닿지 않는 위치로 거부 [mm]')]
+            ('reach_max_mm', '700.0', '베이스에서 이보다 먼 큐브·놓을 자리는 닿지 않는 위치로 거부 [mm]'),
+            ('reach_min_mm', '300.0', '베이스에서 이보다 가까운 큐브·놓을 자리는 너무 가까운 위치로 거부 [mm]')]
     return LaunchDescription([DeclareLaunchArgument(n, default_value=d, description=h) for n, d, h in args] + [
         Node(package='aris3_real_bridge', executable='real_bridge', output='screen',
              parameters=[{'ns': LaunchConfiguration('ns'), 'host': LaunchConfiguration('host'),
@@ -34,5 +35,6 @@ def generate_launch_description():
                           'cube_mm': LaunchConfiguration('cube_mm'),
                           'align_yaw': LaunchConfiguration('align_yaw'),
                           'center_grasp': LaunchConfiguration('center_grasp'),
-                          'reach_max_mm': LaunchConfiguration('reach_max_mm')}]),
+                          'reach_max_mm': LaunchConfiguration('reach_max_mm'),
+                          'reach_min_mm': LaunchConfiguration('reach_min_mm')}]),
     ])
